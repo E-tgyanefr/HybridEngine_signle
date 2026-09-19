@@ -1,9 +1,9 @@
 # HybridEngine EngineSDK abi fingerprint
-# generated: 2026-09-19 20:42:10
+# generated: 2026-09-19 21:49:39
 header: include/hybridengine/bind/ms_bind.h
 sha256: 90605592D083A4E94E1A20378D6C3DF1593B54AE620905C33E26D549D70347E7
 dll:    bin/hybridengine.dll
-sha256: 4F0395D785257942BB47452432F220AFD78D0BAF70D2E9BC65FD6C77BF81A7F8
+sha256: 6916B4ECB49B8BE4EB959898C054B1A21E16B3933CBEC590FD960622FFCB5BC7
 exports (153):
 ms_assets_guid
 ms_assets_instantiate_prefab
