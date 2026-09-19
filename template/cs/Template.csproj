@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- EngineSDK C# 消费模板：ProjectReference → EngineSDK\dotnet\HybridEngine.Bind（绑定层源码随 SDK 一起发布） -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>template_cs</AssemblyName>
+    <RootNamespace>HybridEngine.SdkTemplate</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 接线①：引用 SDK 内的绑定层工程（无需拿到引擎仓库——打包在 EngineSDK\dotnet 下） -->
+    <ProjectReference Include="..\..\dotnet\HybridEngine.Bind\HybridEngine.Bind.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 接线②：原生 hybridengine.dll 构建后自动复制到输出目录（来自 EngineSDK\bin） -->
+    <NativeDll Include="..\..\bin\hybridengine.dll" Condition="Exists('..\..\bin\hybridengine.dll')" />
+  </ItemGroup>
+  <Target Name="CopyNativeDll" AfterTargets="Build">
+    <Copy SourceFiles="@(NativeDll)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
