@@ -11,8 +11,27 @@
 cmake_minimum_required(VERSION 3.24)
 project(hybridengine_sdk_template_cpp LANGUAGES CXX)
 
-# EngineSDK 根目录（默认 D:/EngineSDK；你的项目可改这里或用 -DENGINE_SDK=... 覆盖）
+# EngineSDK 根目录。解析顺序：
+#   1) -DENGINE_SDK=<路径>            显式指定（CACHE 变量，命令行优先级最高）
+#   2) 默认 "D:/EngineSDK"            ⚠ 这是**作者机器上的路径**
+#   3) 环境变量 HYBRIDENGINE_SDK      仅当上面那个默认值在本机不存在时采用；四个模板共用此变量名
 set(ENGINE_SDK "D:/EngineSDK" CACHE PATH "HybridEngine EngineSDK root")
+if(NOT EXISTS "${ENGINE_SDK}/include/hybridengine/bind/ms_bind.h" AND DEFINED ENV{HYBRIDENGINE_SDK})
+  set(ENGINE_SDK "$ENV{HYBRIDENGINE_SDK}" CACHE PATH "HybridEngine EngineSDK root" FORCE)
+endif()
+
+# 尽早校验：缺 SDK 时给一句人话，而不是让 ninja 在链接阶段报
+#   "ninja: error: 'D:/.../libhybridengine_bind.a' ... missing and no known rule to make it"
+# ——配置阶段会成功，错误出现在下一步且完全不提 ENGINE_SDK（实测踩过这个坑）。
+if(NOT EXISTS "${ENGINE_SDK}/include/hybridengine/bind/ms_bind.h")
+  message(FATAL_ERROR
+    "SDK 里找不到公共头：${ENGINE_SDK}/include/hybridengine/bind/ms_bind.h\n"
+    "  当前 ENGINE_SDK = ${ENGINE_SDK}\n"
+    "  请用以下任一方式指向 EngineSDK 根目录：\n"
+    "    · cmake -S . -B build -DENGINE_SDK=<EngineSDK 根>\n"
+    "    · 设环境变量 HYBRIDENGINE_SDK=<EngineSDK 根>\n"
+    "    · 直接改本文件顶部的默认值")
+endif()
 
 add_executable(template_cpp main.cpp)
 target_include_directories(template_cpp PRIVATE "${ENGINE_SDK}/include")

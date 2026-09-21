@@ -1,9 +1,10 @@
 # ============================================================================
 # HybridEngine EngineSDK — 最小消费模板（Python / hybridengine 包接线）
 #
-# 【怎么接一个项目】三步（三行环境变量缺一不可——见 EngineSDK\docs\绑定层.md §4.1）：
-#   1. 解压 EngineSDK\python\hybridengine.zip 到任意目录（本脚本自动用 SDK 内的 python 目录）；
-#   2. 设置环境变量（或直接 python template_main.py --frames 120——脚本自带的默认即 SDK 默认路径）；
+# 【怎么接一个项目】三步（见 EngineSDK\docs\绑定层.md §4.1）：
+#   1. SDK 根目录怎么找（按序）：环境变量 HYBRIDENGINE_SDK → 否则用默认 ..\..
+#      （默认只在"模板住在 EngineSDK\template\py"的原地用法下成立；拷到别处请设环境变量）；
+#   2. 运行 python template_main.py --frames 120；
 #   3. 期望输出 drawHash=... stable=ok nonempty=ok，退出码 0。
 #
 # 【模板内容】空壳=空白窗口 + 一帧矩形 + 一行文本。不含任何游戏内容。
@@ -17,7 +18,17 @@
 import os
 import sys
 
-SDK = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+# SDK 根目录：优先环境变量 HYBRIDENGINE_SDK（四个模板共用），否则退回"模板上一级上一级"。
+#   退回法只在原地可用——把本文件拷到别处会得到一句明确的报错，而不是 ModuleNotFoundError。
+SDK = os.environ.get("HYBRIDENGINE_SDK") or \
+      os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+if not os.path.isfile(os.path.join(SDK, "include", "hybridengine", "bind", "ms_bind.h")):
+    sys.exit(
+        "[template py] 在 EngineSdkRoot 下找不到 EngineSDK：{0}\n"
+        "  指向 SDK 根目录的两种方式：\n"
+        "    · 设环境变量 HYBRIDENGINE_SDK=<EngineSDK 根>\n"
+        "    · 把本模板留在 EngineSDK\\template\\py 原地使用（相对路径才成立）".format(SDK))
 
 # 接线①：包根（把 SDK python 目录插到 import 路径——hybridengine 包已由 release.ps1 解压于此）
 sys.path.insert(0, os.path.join(SDK, "python"))

@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- EngineSDK C# 消费模板：ProjectReference → EngineSDK\dotnet\HybridEngine.Bind（绑定层源码随 SDK 一起发布） -->
+  <!-- EngineSDK C# 消费模板：ProjectReference → EngineSDK\dotnet\HybridEngine.Bind（绑定层源码随 SDK 一起发布）
+       ── SDK 根目录怎么找（EngineSdkRoot 属性，按序解析）──
+         1) -p:EngineSdkRoot=<路径>            命令行显式指定，优先级最高
+         2) 环境变量 HYBRIDENGINE_SDK          四个模板共用（C++/C#/Python 都认这个名字）
+         3) 默认 ..\..                         即"模板住在 EngineSDK\template\cs"的原地用法
+       把本目录**拷到别处**用时：相对路径会断，必须给 1) 或 2)，否则下面的 Error 会明确告诉你。 -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
@@ -8,13 +13,35 @@
     <AssemblyName>template_cs</AssemblyName>
     <RootNamespace>HybridEngine.SdkTemplate</RootNamespace>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- 输入优先级：-p:EngineSdkRoot > 环境变量 HYBRIDENGINE_SDK > 默认相对 ..\..（原地用法）。
+         ⚠ 关键：规范化结果写在**另一个属性名**（EngineSdkRootNorm）里。
+         不能让 EngineSdkRoot 自赋值——命令行的 -p:EngineSdkRoot=... 是「全局属性」，
+         MSBuild 对全局属性只查表、不重新求值，属性组里的赋值会被直接忽略，
+         结果就是未规范化的 'D:/EngineSDK' 拼出 'D:/EngineSDKdotnet\...'（实测三次）。 -->
+    <_EngineSdkRootInput Condition="'$(_EngineSdkRootInput)' == '' and '$(EngineSdkRoot)' != ''">$(EngineSdkRoot)</_EngineSdkRootInput>
+    <_EngineSdkRootInput Condition="'$(_EngineSdkRootInput)' == '' and '$(HYBRIDENGINE_SDK)' != ''">$(HYBRIDENGINE_SDK)</_EngineSdkRootInput>
+    <_EngineSdkRootInput Condition="'$(_EngineSdkRootInput)' == ''">$(MSBuildThisFileDirectory)..\..</_EngineSdkRootInput>
+    <!-- 规范化 + 补尾部反斜杠。两个坑都实测踩过：
+           ① MSBuild 的 Exists() 不做路径折叠 → 'D:\SDK\template\cs\..\..' 判为不存在；
+           ② GetFullPath 不补尾部分隔符 → 拼 $(...)dotnet\... 得到 'D:\SDKdotnet\...'。 -->
+    <EngineSdkRootNorm>$([System.IO.Path]::GetFullPath('$(_EngineSdkRootInput)').TrimEnd('\'))\</EngineSdkRootNorm>
+  </PropertyGroup>
+
+  <!-- 尽早失败并说清怎么办，而不是抛一句 CS0234 说命名空间 HybridEngine 不存在 -->
+  <Target Name="RequireEngineSdk" BeforeTargets="ResolveProjectReferences">
+    <Error Condition="!Exists('$(EngineSdkRootNorm)dotnet\HybridEngine.Bind\HybridEngine.Bind.csproj')"
+           Text="在 EngineSdkRoot 下找不到绑定层工程：$(EngineSdkRootNorm)dotnet\HybridEngine.Bind\HybridEngine.Bind.csproj&#10;  当前 EngineSdkRoot = $(_EngineSdkRootInput)&#10;  指向 EngineSDK 根目录的三种方式：&#10;    · dotnet build -p:EngineSdkRoot=&lt;EngineSDK 根&gt;&#10;    · 设环境变量 HYBRIDENGINE_SDK=&lt;EngineSDK 根&gt;&#10;    · 把本模板留在 EngineSDK\template\cs 原地使用（相对路径才成立）" />
+  </Target>
+
   <ItemGroup>
     <!-- 接线①：引用 SDK 内的绑定层工程（无需拿到引擎仓库——打包在 EngineSDK\dotnet 下） -->
-    <ProjectReference Include="..\..\dotnet\HybridEngine.Bind\HybridEngine.Bind.csproj" />
+    <ProjectReference Include="$(EngineSdkRootNorm)dotnet\HybridEngine.Bind\HybridEngine.Bind.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- 接线②：原生 hybridengine.dll 构建后自动复制到输出目录（来自 EngineSDK\bin） -->
-    <NativeDll Include="..\..\bin\hybridengine.dll" Condition="Exists('..\..\bin\hybridengine.dll')" />
+    <NativeDll Include="$(EngineSdkRootNorm)bin\hybridengine.dll" Condition="Exists('$(EngineSdkRootNorm)bin\hybridengine.dll')" />
   </ItemGroup>
   <Target Name="CopyNativeDll" AfterTargets="Build">
     <Copy SourceFiles="@(NativeDll)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />

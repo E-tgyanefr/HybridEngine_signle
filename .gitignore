@@ -15,3 +15,7 @@ Thumbs.db
 desktop.ini
 __pycache__/
 *.pyc
+
+# SDK 内的 .NET 构建产物（消费者跑一次 dotnet build 就会生成）
+dotnet/**/obj/
+dotnet/**/bin/

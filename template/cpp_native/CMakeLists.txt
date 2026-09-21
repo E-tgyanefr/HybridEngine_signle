@@ -23,10 +23,19 @@ project(hybridengine_sdk_template_cpp_native LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)   # 与引擎一致（引擎 2026-09-17 起要求 C++23）
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# EngineSDK 根目录。解析顺序：
+#   1) -DENGINE_SDK=<路径>            显式指定（CACHE 变量，命令行优先级最高）
+#   2) 默认 "D:/EngineSDK"            ⚠ 这是**作者机器上的路径**
+#   3) 环境变量 HYBRIDENGINE_SDK      仅当上面那个默认值在本机不存在时采用；四个模板共用此变量名
 set(ENGINE_SDK "D:/EngineSDK" CACHE PATH "HybridEngine EngineSDK root")
+if(NOT EXISTS "${ENGINE_SDK}/include/hybridengine/app/engine.hpp" AND DEFINED ENV{HYBRIDENGINE_SDK})
+    set(ENGINE_SDK "$ENV{HYBRIDENGINE_SDK}" CACHE PATH "HybridEngine EngineSDK root" FORCE)
+endif()
 if(NOT EXISTS "${ENGINE_SDK}/include/hybridengine/app/engine.hpp")
     message(FATAL_ERROR "SDK 里找不到公共头：${ENGINE_SDK}/include/hybridengine/app/engine.hpp\n"
-                        "需要一个含**完整公共头树**的 SDK（用引擎 scripts\\release.ps1 生成）。")
+                        "需要一个含**完整公共头树**的 SDK（用引擎 scripts\\release.ps1 生成）。\n"
+                        "  当前 ENGINE_SDK = ${ENGINE_SDK}\n"
+                        "  指向 SDK 根的三种方式：cmake -DENGINE_SDK=<根> / 环境变量 HYBRIDENGINE_SDK / 改本文件默认值。")
 endif()
 
 # 非 ASCII 路径警告：MinGW Makefiles 在**含中文/空格的路径**下必然失败
