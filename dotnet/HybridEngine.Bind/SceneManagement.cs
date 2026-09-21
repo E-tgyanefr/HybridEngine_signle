@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using HybridEngine.Engine.Internal;
@@ -153,12 +153,24 @@ public static class SceneManager
         if (!additive)
         {
             int rc0 = Native.ms_scene_load(E, Native.ms_engine_scene(E), assetPath);
-            if (rc0 != BindError.OK) throw new InvalidOperationException("ms_scene_load rc=" + rc0);
+            if (rc0 != BindError.OK) throw DescribeLoadFailure("ms_scene_load", rc0, assetPath);
             return GetActiveScene();
         }
         int rc = Native.ms_scene_load_additive(E, assetPath, out var handle);
-        if (rc != BindError.OK) throw new InvalidOperationException("ms_scene_load_additive rc=" + rc);
+        if (rc != BindError.OK) throw DescribeLoadFailure("ms_scene_load_additive", rc, assetPath);
         return FindByHandle(handle) ?? throw new InvalidOperationException("ms_scene_load_additive: scene not found");
+    }
+
+    /// <summary>把场景加载失败码翻译成可操作的报错。
+    /// 最常踩的一条：场景含**脚本组件**时，必须先注册脚本桥与重放回调
+    /// （C# 侧 = <c>CsScriptBridge.Register(engine)</c>、编辑器/Play = <c>Scripts.Load(...)</c>），
+    /// 否则两条加载路径都会返回 Unsupported——这不是"文件坏了"，而是承载未就绪。</summary>
+    private static InvalidOperationException DescribeLoadFailure(string api, int rc, string assetPath)
+    {
+        string extra = rc == BindError.ErrNotSupported
+            ? "（该场景含脚本组件，但脚本承载未就绪：请先 CsScriptBridge.Register(engine) 或 Scripts.Load(...) 再加载）"
+            : "";
+        return new InvalidOperationException($"{api} rc={rc}{extra} path={assetPath}");
     }
 
     /// <summary>卸载场景（含对象拆除与脚本实例清退）。最后一个场景不可卸载 → 返回 false。</summary>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using HybridEngine.Engine.Internal;
 
 namespace HybridEngine.Engine;
@@ -50,11 +50,16 @@ public sealed class AudioSession : IDisposable
 
     public int Seek(double ms) => Native.ms_audio_seek(_engine, _handle, ms);
 
+    /// <summary>当前播放位置（毫秒）。
+    /// ⚠ 失败时**抛异常**（M1）：原生对已关闭/无效句柄返回 NOT_FOUND **且不写出参**，
+    /// 直接返回 out 值等于把未初始化的 double 当播放位置。</summary>
     public double PositionMs
     {
         get
         {
-            Native.ms_audio_position(_engine, _handle, out double ms);
+            int rc = Native.ms_audio_position(_engine, _handle, out double ms);
+            if (rc != BindError.OK)
+                throw new InvalidOperationException("ms_audio_position rc=" + rc + "（音频句柄已关闭/失效）");
             return ms;
         }
     }

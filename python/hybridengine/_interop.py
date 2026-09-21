@@ -132,18 +132,28 @@ class GUINotAvailable(RuntimeError):
     """当前 hybridengine.dll 无 GUI ABI（ms_rnd_*/ms_text_*/ms_input_mouse_*）——需 t1 后重建引擎 DLL。"""
 
 
+_GUI_ABI_CACHE = None
+
+
 def gui_abi_available() -> bool:
-    """GUI ABI 符号是否齐全（C#/Python 包装层按此决定能力开关）"""
-    return all(
-        hasattr(lib, n)
-        for n in ("ms_rnd_clear_list", "ms_rnd_clear", "ms_rnd_clear_rect", "ms_rnd_fill_rect",
-                  "ms_rnd_fill_rounded_rect", "ms_rnd_draw_line", "ms_rnd_fill_circle", "ms_rnd_draw_circle",
-                  "ms_rnd_fill_triangle", "ms_rnd_fill_quad", "ms_rnd_blit_rect", "ms_rnd_blit_alpha",
-                  "ms_rnd_clip_push", "ms_rnd_clip_push_rotated", "ms_rnd_clip_pop",
-                  "ms_text_draw", "ms_text_measure",
-                  "ms_input_mouse_x", "ms_input_mouse_y", "ms_input_mouse_button",
-                  "ms_input_mouse_button_down", "ms_input_mouse_button_up", "ms_input_mouse_wheel_delta")
-    )
+    """GUI ABI 符号是否齐全（包装层按此决定能力开关）。
+
+    结果**缓存一次**（M10）：它只取决于已加载的 DLL，进程内不会变；
+    而绘制原语每个都会调用本函数（一次 23 发 hasattr），逐调用探测纯属浪费。
+    """
+    global _GUI_ABI_CACHE
+    if _GUI_ABI_CACHE is None:
+        _GUI_ABI_CACHE = all(
+            hasattr(lib, n)
+            for n in ("ms_rnd_clear_list", "ms_rnd_clear", "ms_rnd_clear_rect", "ms_rnd_fill_rect",
+                      "ms_rnd_fill_rounded_rect", "ms_rnd_draw_line", "ms_rnd_fill_circle", "ms_rnd_draw_circle",
+                      "ms_rnd_fill_triangle", "ms_rnd_fill_quad", "ms_rnd_blit_rect", "ms_rnd_blit_alpha",
+                      "ms_rnd_clip_push", "ms_rnd_clip_push_rotated", "ms_rnd_clip_pop",
+                      "ms_text_draw", "ms_text_measure",
+                      "ms_input_mouse_x", "ms_input_mouse_y", "ms_input_mouse_button",
+                      "ms_input_mouse_button_down", "ms_input_mouse_button_up", "ms_input_mouse_wheel_delta")
+        )
+    return _GUI_ABI_CACHE
 
 
 P = ctypes.c_void_p

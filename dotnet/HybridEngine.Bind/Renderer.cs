@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using HybridEngine.Engine.Internal;
 
 namespace HybridEngine.Engine;
@@ -38,10 +38,10 @@ public interface IRenderer
     void BlitRectAlpha(double x, double y, double w, double h, uint[] srcPixels);  // t1：src=0xAARRGGBB 逐像素 straight-alpha 合成
 
     // —— 矩形裁剪（t6：Clip/Scissor——push 入栈 ≤8 深（栈顶生效）；pop 恢复；越界内容不画出）——
-    void ClipPush(double x, double y, double w, double h);
+    bool ClipPush(double x, double y, double w, double h);   // 返回是否成功（栈满=未入栈，勿配对 ClipPop）
     // t-rot-clip：旋转矩形裁剪（中心+尺寸+角度弧度——斜劈/分离位移精确切分；同栈：pop 恢复；angle=0≡ClipPush）
-    void ClipPushRotated(double cx, double cy, double w, double h, double angleRad);
-    void ClipPop();
+    bool ClipPushRotated(double cx, double cy, double w, double h, double angleRad);
+    bool ClipPop();
 
     // —— 文本（ms_text_*——UTF-8；录制 Text 命令——回放绘制双面，参与哈希）——
     void DrawText(string utf8, double x, double y, double size, Rgba color);
@@ -112,9 +112,12 @@ internal sealed class RendererProxy : IRenderer
             throw new ArgumentException(
                 $"blit 源像素不足：w={w} h={h} 需要 {need} 个像素，实际只有 {srcPixels?.Length ?? 0} 个");
     }
-    public void ClipPush(double x, double y, double w, double h) => Native.ms_rnd_clip_push(_engine, x, y, w, h);   // t6：矩形裁剪入栈
-    public void ClipPushRotated(double cx, double cy, double w, double h, double angleRad) => Native.ms_rnd_clip_push_rotated(_engine, cx, cy, w, h, angleRad);   // t-rot-clip：旋转矩形裁剪入栈
-    public void ClipPop() => Native.ms_rnd_clip_pop(_engine);                                                     // t6：弹栈
+    // t6：矩形裁剪。**返回是否成功**（M2）：栈满（第 9 层）时原生返回 BAD_ARG 且**不记录**，
+    //   此时**不要**配对调用 ClipPop——pop 只检查"深度>0"，会弹掉上一层合法裁剪，
+    //   造成裁剪栈错位、后续绘制被错误裁剪（静默的错误像素）。
+    public bool ClipPush(double x, double y, double w, double h) => Native.ms_rnd_clip_push(_engine, x, y, w, h) == BindError.OK;
+    public bool ClipPushRotated(double cx, double cy, double w, double h, double angleRad) => Native.ms_rnd_clip_push_rotated(_engine, cx, cy, w, h, angleRad) == BindError.OK;
+    public bool ClipPop() => Native.ms_rnd_clip_pop(_engine) == BindError.OK;   // t6：弹栈（空栈=false）
 
     public void DrawText(string utf8, double x, double y, double size, Rgba color) => Native.ms_text_draw(_engine, utf8, x, y, size, color.ToArgb());
     public (double Width, double Height) MeasureText(string utf8, double size)

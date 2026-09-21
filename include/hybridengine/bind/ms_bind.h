@@ -82,7 +82,7 @@ MS_API int ms_scene_active_index(ms_engine* e, int* outIndex);                  
 MS_API int ms_scene_set_active_index(ms_engine* e, int index);                  // 切换活动场景（越界=BAD_ARG）
 MS_API int ms_scene_name(ms_engine* e, ms_scene* s, char* out, int cap);        // 场景名（UTF-8）
 MS_API int ms_scene_new(ms_engine* e, const char* name, ms_scene** outScene);   // 附加新建空场景（活动场景不变）
-MS_API int ms_scene_load_additive(ms_engine* e, const char* assetPath, ms_scene** outScene);   // 附加加载（含脚本重放）
+MS_API int ms_scene_load_additive(ms_engine* e, const char* assetPath, ms_scene** outScene);   // 附加加载（含脚本重放；**含脚本组件的场景要求脚本桥+重放回调已注册**，否则返回 MS_ERR_NOT_SUPPORTED(8)——与 ms_scene_load 同一前置条件，不静默丢脚本）
 MS_API int ms_scene_unload(ms_engine* e, ms_scene* s);                          // 卸载场景（拆除对象 + 移除槽位）
 MS_API int ms_scene_add_root(ms_engine* e, ms_scene* s, const char* name, ms_id* outId);
 MS_API int        ms_scene_save(ms_engine* e, ms_scene* s, const char* assetPath);
@@ -270,7 +270,9 @@ MS_API int    ms_assets_instantiate_prefab(ms_engine* e, const char* assetPath, 
    ms_assets_list：dir 递归 List（类型表过滤——复用 AssetLibrary::List）→ JSON 字符串数组（["Assets/a.bmp",...]）；
    out 缓冲不足（cap 溢出）=MS_ERR_BAD_ARG（文档化）；root 未设=空数组。
    ms_assets_texture_pixels：Texture 像素**借出指针**（句柄（ms_assets_unref/引擎销毁）存活期间有效——零拷贝直读；
-   句柄失效后禁用（未定义——不代表可访问）；w/h/stride（stride=行字节数）出参；非 Texture=MS_ERR_BAD_TYPE。 */
+   句柄失效后禁用（未定义——不代表可访问）；w/h/stride 出参——**stride = 输出像素缓冲的行 pitch（恒为 w*4 字节）**，
+   即按 `pixels[y * (stride/4) + x]` 索引；**不是**源文件行字节数（BMP 源行含 4 字节对齐填充、
+   PNG 源扫描行是 w*通道数，两者与输出 pitch 都不同——按源侧值当 pitch 走行会读错行）；非 Texture=MS_ERR_BAD_TYPE。 */
 MS_API int    ms_assets_list(ms_engine* e, const char* dir, char* outJson, int cap);
 MS_API int    ms_assets_texture_pixels(ms_engine* e, ms_asset* a, int* outW, int* outH, int* outStride, uint32_t** outPixels);
 

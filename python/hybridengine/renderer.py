@@ -101,20 +101,32 @@ class DrawCtx:
         _interop.ms_rnd_blit_alpha(self._e, x, y, w, h, ctypes.cast(arr, ctypes.POINTER(ctypes.c_uint32)))
 
     # —— 矩形裁剪（t6：Clip/Scissor——越界内容不画出；与 draw 原语成对使用）——
-    def clip_push(self, x: float, y: float, w: float, h: float):
-        """矩形裁剪入栈（≤8 深；栈顶=当前裁剪——嵌套仅栈顶生效=保存/恢复）"""
-        _require_gui()
-        _interop.ms_rnd_clip_push(self._e, x, y, w, h)
+    def clip_push(self, x: float, y: float, w: float, h: float) -> bool:
+        """矩形裁剪入栈（≤8 深；栈顶=当前裁剪——嵌套仅栈顶生效=保存/恢复）。
 
-    def clip_push_rotated(self, cx: float, cy: float, w: float, h: float, angle_rad: float):
-        """旋转矩形裁剪入栈（中心+尺寸+角度弧度——斜劈/分离位移精确切分；angle=0≡clip_push；同栈 pop 恢复）"""
+        :return: True=已入栈；False=超深（第 9 层）**未入栈**。
+        ⚠ 返回 False 时**不要**配对调用 clip_pop()：pop 只检查"深度>0"，
+        会弹掉上一层合法的裁剪，导致裁剪栈错位、后续绘制被错误裁剪
+        （这正是 M2 里"静默裁剪错位"的成因）。
+        """
         _require_gui()
-        _interop.ms_rnd_clip_push_rotated(self._e, cx, cy, w, h, angle_rad)
+        return _interop.ms_rnd_clip_push(self._e, x, y, w, h) == 0
 
-    def clip_pop(self):
-        """弹栈恢复上一级（空栈=MS_ERR_INVALID_OP——调用方成对使用）"""
+    def clip_push_rotated(self, cx: float, cy: float, w: float, h: float, angle_rad: float) -> bool:
+        """旋转矩形裁剪入栈（中心+尺寸+角度弧度——斜劈/分离位移精确切分；angle=0≡clip_push）。
+
+        :return: 同 clip_push（False=超深未入栈，勿配对 pop）。
+        """
         _require_gui()
-        _interop.ms_rnd_clip_pop(self._e)
+        return _interop.ms_rnd_clip_push_rotated(self._e, cx, cy, w, h, angle_rad) == 0
+
+    def clip_pop(self) -> bool:
+        """弹栈恢复上一级。
+
+        :return: True=已弹出；False=空栈（MS_ERR_INVALID_OP）。
+        """
+        _require_gui()
+        return _interop.ms_rnd_clip_pop(self._e) == 0
 
     # —— 文本（ms_text_*——UTF-8；录制 Text 命令——回放绘制双面，参与哈希）——
     def draw_text(self, text: str, x: float, y: float, size: float, color: int):

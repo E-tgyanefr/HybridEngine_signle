@@ -140,9 +140,19 @@ public sealed class GameEngine : IDisposable
         // 脚本组件实例由引擎内的重放回调（SceneReplay）按 scriptFields 重建，此处无需额外处理。
         if (RootCount > 0) Root = GetRoot(0);
     }
+    /// <summary>活动场景的根对象个数。
+    /// ⚠ 失败时**抛异常**而不是返回 0（M1）：原生在句柄无效/场景无效时会返回 BAD_ARG
+    /// **且不写出参**，此时 out 值是未定义的——返回它等于把垃圾当计数（0 又恰好是合法值，
+    /// 会让调用方误判"场景是空的"）。</summary>
     public int RootCount
     {
-        get { Native.ms_scene_root_count(Handle, ScenePtr, out int n); return n; }
+        get
+        {
+            int rc = Native.ms_scene_root_count(Handle, ScenePtr, out int n);
+            if (rc != BindError.OK)
+                throw new InvalidOperationException("ms_scene_root_count rc=" + rc + "（引擎句柄或场景已失效）");
+            return n;
+        }
     }
     public SceneObject GetRoot(int index)
     {
