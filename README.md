@@ -1,15 +1,13 @@
-# HybridEngine EngineSDK
+﻿# HybridEngine EngineSDK
 
 引擎侧交付包（游戏编写/移植 = 另一团队的工程——本包只含引擎 ABI 与接线壳）。
 
-> 作者/著作权人：**QDR-team**（GitHub: E-tgyanefr）。本包为**源码可见的专有软件**：
-> 允许浏览/克隆/fork/评估/链接使用，并允许**自由发布你用本包做出的产品**；
-> 但**不得再分发 SDK 本身**。完整条款见仓库 `LICENSE`。
+> 作者/著作权人：**QDR-team**（GitHub: E-tgyanefr）。本包为专有软件，许可条款见仓库 `LICENSE`。
 
 ## 目录
 | 路径 | 说明 |
 |---|---|
-| `include/hybridengine/**` | 全部公共头（**54 个**：53 `.hpp` + `bind/ms_bind.h`）。`bind/ms_bind.h` = 稳定 C ABI；其余 = 原生 C++ API |
+| `include/hybridengine/**` | 全部公共头（**52 个**）。`bind/ms_bind.h` = 稳定 C ABI；其余 = 原生 C++ API |
 | `lib/libhybridengine_*.a` | 静态库全链（app/core/platform/render3d/**editor**/plugin/bind + DLL 导入库） |
 | `bin/hybridengine.dll` | C ABI 共享库（C#/Python 运行时共用） |
 | `bin/PackPlayer.exe` | 打包谱面的原生播放器模板（1.2MB；见下） |
