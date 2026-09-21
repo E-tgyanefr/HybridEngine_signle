@@ -93,7 +93,7 @@ MS_API int        ms_scene_root_get(ms_engine* e, ms_scene* s, int index, ms_go*
 MS_API int        ms_scene_find(ms_engine* e, ms_scene* s, const char* name, ms_go** outGo);   // 按名 DFS（未找到=MS_ERR_NOT_FOUND）
 
 /* ---- 对象/组件 ---- */
-MS_API long       ms_go_instance_id(ms_engine* e, ms_go* g);
+MS_API ms_id      ms_go_instance_id(ms_engine* e, ms_go* g);
 MS_API int        ms_go_set_active(ms_engine* e, ms_go* g, int active);
 MS_API int        ms_go_destroy(ms_engine* e, ms_go* g);
 MS_API int        ms_go_add_child(ms_engine* e, ms_go* g, const char* name, ms_go** outGo);
@@ -198,8 +198,8 @@ MS_API int    ms_input_get_button(ms_engine* e, const char* action);      // Fir
 /* ---- 变换 ---- */
 MS_API int  ms_transform_get(ms_engine* e, ms_go* g, const char* field, double* out);  // pos(3)/rot(4 wxyz quat)/scale(3)
 MS_API int  ms_transform_set(ms_engine* e, ms_go* g, const char* field, const double* in);
-MS_API long ms_transform_parent(ms_engine* e, ms_go* g);
-MS_API int  ms_transform_set_parent(ms_engine* e, ms_go* g, long parentId, int keepWorld);
+MS_API ms_id ms_transform_parent(ms_engine* e, ms_go* g);
+MS_API int  ms_transform_set_parent(ms_engine* e, ms_go* g, ms_id parentId, int keepWorld);
 
 /* ---- C# 脚本桥（M3.4：types/fields/set 三回调——编辑器脚本字段经绑定） ---- */
 typedef int (*ms_cb_script_fields)(void* userData, const char* instanceKey, char* outJson, int cap);

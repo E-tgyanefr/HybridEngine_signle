@@ -10,6 +10,13 @@ class Asset:
     def __init__(self, engine_handle, handle):
         self._e = engine_handle
         self._h = handle
+        # 幂等标志：C 侧 ms_assets_unref 会 `delete h`，**无法自检句柄是否已释放**，
+        #   故重复 unref 会二次 free → 实测进程级堆损坏（STATUS_HEAP_CORRUPTION）。
+        self._released = False
+
+    @property
+    def released(self) -> bool:
+        return self._released
 
     @property
     def type(self):
@@ -41,7 +48,19 @@ class Asset:
         return (w.value, h.value)
 
     def unref(self):
+        """释放引用。**幂等**——二次调用直接返回（否则 C 侧二次 delete = 堆损坏）。"""
+        if self._released:
+            return False
+        self._released = True
         _interop.ms_assets_unref(self._e, self._h)
+        return True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.unref()
+        return False
 
 
 class AssetStore:

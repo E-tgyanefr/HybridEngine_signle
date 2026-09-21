@@ -61,12 +61,27 @@ public static class CsScriptBridge
     }
 
     // 反向 P/Invoke：出参=IntPtr+cap（byte[] 不可用于回调出参——长度未知）
-    public delegate int FieldsDel(IntPtr userData, string instanceKey, IntPtr outJson, int cap);
-    public delegate int SetDel(IntPtr userData, string instanceKey, string field, string jsonValue);
+    //
+    // ⚠ 每个 string 参数都必须显式 [MarshalAs(UnmanagedType.LPUTF8Str)]：
+    //   反向 P/Invoke 的默认 string 编组是 **CharSet.Ansi = 系统 ACP**，而 ABI 契约是 UTF-8
+    //   （ms_bind.h 头注释）。漏标会让非 ASCII 实例键/字段值被按 ACP 解码 →
+    //   静默乱码（实测 ACP=936 时 '中文类型#1' → '涓枃绫诲瀷#1'），
+    //   进而 instanceKey 查不到组件 → 检查器编辑/脚本调用静默失效。
+    //   同一文件里 Interop.cs 的 MsCbScriptReplay 已正确标注，可对照。
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate int FieldsDel(IntPtr userData, [MarshalAs(UnmanagedType.LPUTF8Str)] string instanceKey, IntPtr outJson, int cap);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate int SetDel(IntPtr userData, [MarshalAs(UnmanagedType.LPUTF8Str)] string instanceKey,
+                               [MarshalAs(UnmanagedType.LPUTF8Str)] string field,
+                               [MarshalAs(UnmanagedType.LPUTF8Str)] string jsonValue);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int TypesDel(IntPtr userData, IntPtr outJson, int cap);
     // t-graph-script：调用脚本的一个公开方法（无参或单个 double 参数）。outResult 收返回值（void → 0）。
-    public delegate int CallDel(IntPtr userData, string instanceKey, string method, double arg, out double outResult);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate int CallDel(IntPtr userData, [MarshalAs(UnmanagedType.LPUTF8Str)] string instanceKey,
+                                [MarshalAs(UnmanagedType.LPUTF8Str)] string method, double arg, out double outResult);
     // t-graph-member：成员清单（JSON 出参）——节点图调色板的下拉数据
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int MembersDel(IntPtr userData, IntPtr outJson, int cap);
 
     // t-graph-script：反射调用。只认「公开实例方法 + 无参/单 double 参数」——覆盖面够用（游戏逻辑里的
@@ -74,7 +89,7 @@ public static class CsScriptBridge
     private static int ScriptCall(IntPtr userData, string instanceKey, string method, double arg, out double outResult)
     {
         outResult = 0.0;
-        var comp = ScriptRegistry.Find(instanceKey);
+        var comp = ScriptRegistry.Find(_engine, instanceKey);
         if (comp == null) return -1;                       // 实例不在（未挂载/已销毁）
         var t = comp.GetType();
         var mi = t.GetMethod(method, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
@@ -103,7 +118,7 @@ public static class CsScriptBridge
         sb.Append("[");
         var seen = new HashSet<Type>();
         bool firstType = true;
-        foreach (var comp in ScriptRegistry.All())
+        foreach (var comp in ScriptRegistry.All(_engine))
         {
             var t = comp.GetType();
             if (!seen.Add(t)) continue;
@@ -150,14 +165,14 @@ public static class CsScriptBridge
 
     private static int FieldsGet(IntPtr userData, string instanceKey, IntPtr outJson, int cap)
     {
-        var comp = ScriptRegistry.Find(instanceKey);
+        var comp = ScriptRegistry.Find(_engine, instanceKey);
         if (comp == null) return -1;
         return WriteUtf8(BuildFieldsJson(comp), outJson, cap);
     }
 
     private static int FieldSet(IntPtr userData, string instanceKey, string field, string jsonValue)
     {
-        var comp = ScriptRegistry.Find(instanceKey);
+        var comp = ScriptRegistry.Find(_engine, instanceKey);
         if (comp == null) return -1;
         return SetFieldValue(comp, field, jsonValue) ? 0 : -2;
     }
@@ -167,7 +182,7 @@ public static class CsScriptBridge
         var sb = new StringBuilder();
         sb.Append("[");
         bool first = true;
-        foreach (var kv in ScriptRegistry.Types())
+        foreach (var kv in ScriptRegistry.Types(_engine))
         {
             if (!first) sb.Append(",");
             first = false;
@@ -270,17 +285,43 @@ public static class CsScriptBridge
 // 脚本组件实例/类型登记（ComponentBridge 注册时联动）
 internal static class ScriptRegistry
 {
-    private static readonly Dictionary<string, ComponentBase> Map = new();
-    private static readonly Dictionary<string, string> TypeNames = new();
+    // 按**引擎**分域：多引擎并存时全局字典会让 A 引擎的 instanceKey 命中 B 引擎的组件
+    //   （键形如 Type#n，两个引擎的计数器各自从 1 开始 → 必然撞键）。
+    // 另用有序键列表保证 Types()/All() 的枚举顺序**跨进程稳定**
+    //   （M9：原先直接用 Dictionary.Values，随字符串哈希随机化而变）。
+    private static readonly Dictionary<(IntPtr Engine, string Key), ComponentBase> Map = new();
+    private static readonly Dictionary<(IntPtr Engine, string Key), string> TypeNames = new();
+    private static readonly List<(IntPtr Engine, string Key)> Order = new();
 
-    public static void Register(string key, ComponentBase comp)
+    public static void Register(IntPtr engine, string key, ComponentBase comp)
     {
-        Map[key] = comp;
-        TypeNames[key] = comp.GetType().Name;
+        var k = (engine, key);
+        if (!Map.ContainsKey(k)) Order.Add(k);
+        Map[k] = comp;
+        TypeNames[k] = comp.GetType().Name;
     }
-    public static void UnregisterAll() { Map.Clear(); TypeNames.Clear(); }
-    public static ComponentBase? Find(string key) => Map.TryGetValue(key, out var c) ? c : null;
-    public static IEnumerable<string> Types() => TypeNames.Values;
-    // t-graph-member：所有已挂载实例（成员清单按它枚举类型）
-    public static IEnumerable<ComponentBase> All() => Map.Values;
+
+    public static void UnregisterAll(IntPtr engine)
+    {
+        Order.RemoveAll(k => k.Engine == engine);
+        foreach (var k in new List<(IntPtr, string)>(Map.Keys)) if (k.Item1 == engine) Map.Remove(k);
+        foreach (var k in new List<(IntPtr, string)>(TypeNames.Keys)) if (k.Item1 == engine) TypeNames.Remove(k);
+    }
+
+    public static ComponentBase? Find(IntPtr engine, string key) =>
+        Map.TryGetValue((engine, key), out var c) ? c : null;
+
+    /// <summary>本引擎已挂载实例的类型名（**按注册顺序**——跨进程稳定）。</summary>
+    public static IEnumerable<string> Types(IntPtr engine)
+    {
+        foreach (var k in Order)
+            if (k.Engine == engine && TypeNames.TryGetValue(k, out var tn)) yield return tn;
+    }
+
+    // t-graph-member：所有已挂载实例（成员清单按它枚举类型）——同样按注册顺序
+    public static IEnumerable<ComponentBase> All(IntPtr engine)
+    {
+        foreach (var k in Order)
+            if (k.Engine == engine && Map.TryGetValue(k, out var c)) yield return c;
+    }
 }

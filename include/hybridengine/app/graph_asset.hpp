@@ -116,7 +116,10 @@ public:
     // 供测试/诊断：某节点上一次执行的成败
     bool LastScriptOk() const { return lastScriptOk_; }
     const DrawSink& Sink() const { return sink_; }   // 宿主可据此增补（例如补文字出口）
-    // 按键输入（Key 事件节点用）：vk → 本帧是否按下沿
+    // 按键输入（Key 事件节点用）：vk → 本帧是否**按住**（level，不是边沿）
+    //   注意：`event.key` 节点有两个输出端口，语义不同——
+    //     · `down`    = 当前是否按住（level）
+    //     · `pressed` = 本帧是否**刚按下**（上升沿，需要 prevKeys_ 快照）
     void SetKeyState(const std::unordered_map<int, bool>* keys) { keys_ = keys; }
 
     void Tick(double dt, int phase);
@@ -151,6 +154,14 @@ private:
     ScriptSink scriptSink_;               // t-graph-script：脚本成员读写/调用的注入出口
     bool lastScriptOk_ = true;            // 上次脚本节点执行是否成功（诊断/测试）
     const std::unordered_map<int, bool>* keys_ = nullptr;
+    // pressed 端口判上升沿用的两份快照（都在 Tick 内维护，开销只随按键表大小）：
+    //   prevKeys_     = 上一次 Tick **结束时**的按键状态（本次 Tick 的"上一帧"基线）
+    //   rawKeyState_  = 最近一次观察到的 keys_ 原始副本
+    //   为什么需要两份：宿主/测试会**原地**改同一张 keys 表（Tick 与 Tick 之间插入/清除按键），
+    //   若只长期持有指针，历史状态会被追溯性改写；而 prevKeys_ 必须在 Tick 末尾才推进，
+    //   否则宿主在本帧写入的按下会被当成"上帧已按下"，pressed 恒假（实测踩到）。
+    std::unordered_map<int, bool> prevKeys_;
+    std::unordered_map<int, bool> rawKeyState_;
     double time_ = 0;
 };
 

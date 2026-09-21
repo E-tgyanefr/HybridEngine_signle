@@ -30,6 +30,8 @@ public sealed class WaitFixedStep : YieldInstruction
 public sealed class Routine
 {
     internal ScriptBehaviour? Owner;
+    // 归属引擎：Reset(engine) 只清本引擎的协程（多引擎并存时全清会误伤其它引擎）
+    internal IntPtr Engine;
     internal IEnumerator Body = null!;
     internal YieldInstruction? Waiting;
     internal Routine? Nested;
@@ -43,7 +45,7 @@ internal static class RoutineRunner
 
     public static Routine Start(ScriptBehaviour owner, IEnumerator routine)
     {
-        var c = new Routine { Owner = owner, Body = routine };
+        var c = new Routine { Owner = owner, Engine = owner.Owner.EnginePtr, Body = routine };
         _running.Add(c);
         Advance(c, 0.0);   // 托管调度：立即执行到首个 yield
         return c;
@@ -59,6 +61,14 @@ internal static class RoutineRunner
     {
         for (int i = _running.Count - 1; i >= 0; --i)
             if (ReferenceEquals(_running[i].Owner, owner)) _running.RemoveAt(i);
+    }
+
+    /// <summary>只清**指定引擎**的协程（ComponentBridge.ReleaseAll(engine) 调用）。
+    /// 多引擎并存时无参全清会让其它引擎的协程静默消失。</summary>
+    public static void Reset(IntPtr engine)
+    {
+        for (int i = _running.Count - 1; i >= 0; --i)
+            if (_running[i].Engine == engine) _running.RemoveAt(i);
     }
 
     public static void Tick(double dt)

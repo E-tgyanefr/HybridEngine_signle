@@ -30,6 +30,8 @@ public sealed class GameEngine : IDisposable
     // t1：GUI 平面代理（OnRender 回调参数=真实 IRenderer——C ABI 绘制进引擎当前帧缓冲）
     public IRenderer Renderer { get; private set; } = null!;
     public bool ShouldQuit { get; private set; }
+    // 幂等 Dispose：重复释放会二次 ms_engine_destroy / 二次拆桥（实测堆损坏）。
+    private bool _disposed;
 
     public GameEngine()
     {
@@ -276,12 +278,22 @@ public sealed class GameEngine : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         if (ReferenceEquals(Current, this)) Current = null;
-        ComponentBridge.ReleaseAll();
         if (Handle == IntPtr.Zero) { GC.SuppressFinalize(this); return; }
-        ManagedFrame.Unregister(Handle);
-        // 附加门面（引擎归宿主所有）**不得销毁引擎**——否则「卸载脚本」会把编辑器自己的引擎干掉
-        if (_ownsEngine) Native.ms_engine_destroy(Handle);
+        // ⚠ 只有**拥有**引擎的门面才拆桥：
+        //   Attach() 出来的门面（_ownsEngine=false，引擎归宿主所有，见 :60）若在这里
+        //   ReleaseAll/Unregister，就会拆掉仍在运行的宿主引擎——宿主的组件回调变悬垂、
+        //   帧钩子被摘（Time 冻结、Invoke/协程停摆），下一次 ms_engine_tick 直接崩。
+        //   编辑器路径正是这么用的：ScriptLoader/Scripts.cs:70 `GameEngine.Attach(engine)`。
+        //   宿主自行 Unload/销毁引擎时，桥由该宿主负责释放。
+        if (_ownsEngine)
+        {
+            ComponentBridge.ReleaseAll(Handle);
+            ManagedFrame.Unregister(Handle);
+            Native.ms_engine_destroy(Handle);
+        }
         Handle = IntPtr.Zero;
         GC.SuppressFinalize(this);
     }

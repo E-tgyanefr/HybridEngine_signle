@@ -11,10 +11,20 @@ public sealed class Asset : IDisposable
 {
     internal IntPtr Handle { get; }
     internal IntPtr Engine { get; }
+    // 幂等标志：C 侧 ms_assets_unref 会 `delete h`，**无法自检句柄是否已释放**，
+    //   故重复 Dispose 会二次 free → 实测 STATUS_HEAP_CORRUPTION（0xC0000374，进程级）。
+    private bool _disposed;
     internal Asset(IntPtr engine, IntPtr handle) { Engine = engine; Handle = handle; }
     public string Type { get { byte[] b = new byte[32]; Native.ms_assets_type(Engine, Handle, b, b.Length); return Strip(b); } }
     public string Guid { get { byte[] b = new byte[32]; Native.ms_assets_guid(Engine, Handle, b, b.Length); return Strip(b); } }
-    public void Dispose() { Native.ms_assets_unref(Engine, Handle); GC.SuppressFinalize(this); }
+    public bool IsDisposed => _disposed;
+    public void Dispose()
+    {
+        if (_disposed) return;   // ← 二次释放必须被挡住（否则堆损坏）
+        _disposed = true;
+        Native.ms_assets_unref(Engine, Handle);
+        GC.SuppressFinalize(this);
+    }
 
     // t7：纹理像素（借出指针快照——句柄存活期间有效；零拷贝直读后 Marshal 拷贝）
     public (int Width, int Height, int Stride, uint[] Pixels) TexturePixels()

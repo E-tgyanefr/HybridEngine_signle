@@ -33,7 +33,7 @@ class GameEngine:
         check(_interop.ms_scene_add_root(self._e, self._scene, name.encode(), ctypes.byref(obj_id)), "add_root")
         go = _interop.c_void_p()
         check(_interop.ms_scene_go_get(self._e, self._scene, obj_id.value, ctypes.byref(go)), "go_get")
-        return SceneObject(self._e, go, obj_id.value, name)
+        return SceneObject(self._e, go, obj_id.value, name, scene_handle=self._scene)
 
     def run_frame(self, dt: float = 0.016) -> int:
         rc = check(_interop.ms_engine_tick(self._e, dt), "tick")
@@ -174,18 +174,24 @@ class GameEngine:
         rc = _interop.ms_scene_find(self._e, self._scene, name.encode(), ctypes.byref(go))
         if rc != 0 or not go:
             return None
-        return SceneObject(self._e, go, _interop.ms_go_instance_id(self._e, go), name)
+        return SceneObject(self._e, go, _interop.ms_go_instance_id(self._e, go), name, scene_handle=self._scene)
 
     def instantiate_prefab(self, asset_path: str):
         """预制体实例化到当前场景（.msprefab）。"""
         go = _interop.c_void_p()
         check(_interop.ms_assets_instantiate_prefab(self._e, asset_path.encode(), ctypes.byref(go)), "instantiate_prefab")
-        return SceneObject(self._e, go, _interop.ms_go_instance_id(self._e, go), "prefab")
+        return SceneObject(self._e, go, _interop.ms_go_instance_id(self._e, go), "prefab", scene_handle=self._scene)
     def dispose(self):
         if self._e:
-            from .component import _registry
-            _registry.release_all()
-            _interop.ms_engine_destroy(self._e)
+            from .component import release_engine
+            handle = self._e
+            # 顺序要紧：**先 destroy 引擎**（销毁过程会走 OnDisable/OnDestroy 回调，
+            #   此刻 thunk 与实例必须还活着），**再**丢本引擎的注册表。
+            #   反过来先丢注册表的话，销毁途中的回调就打进已释放的 libffi 闭包（进程级崩溃）。
+            _interop.ms_engine_destroy(handle)
+            # 只释放**本引擎**的注册表——此前是无参的全局 release_all()，
+            #   会把其它仍存活引擎的 thunk 一并清掉（跨引擎悬垂回调，已实测崩溃）。
+            release_engine(handle)
             self._e = None
 
     def __enter__(self):

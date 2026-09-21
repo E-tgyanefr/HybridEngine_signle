@@ -181,9 +181,15 @@ public static class Native
     [DllImport(Dll, CallingConvention = Conv)] public static extern int ms_assets_texture_pixels(IntPtr e, IntPtr a, out int outW, out int outH, out int outStride, out IntPtr outPixels);   // t7：纹理像素借出指针（句柄存活期间有效）
 }
 
+// 回调委托的调用约定必须与 ABI 一致（cdecl）。不标时默认 Winapi=StdCall：
+//   x64 只有一种约定、实测无碍，但 x86 下会**栈失衡**（本项目未 pin PlatformTarget，
+//   故这里显式标注，避免将来加 x86 目标时踩坑）。
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 public delegate void MsCbVoid(IntPtr ctx);
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 public delegate void MsCbDt(IntPtr ctx, double dt);
 // P1-a：引擎帧钩子（phase 0=帧首——Time 同步；1=帧尾——Invoke/协程推进）
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 public delegate void MsCbFrame(IntPtr userData, double dt, int phase);
 // P1-a：脚本组件重放（C++ 反序列化完成后回调——托管侧建实例 + 补挂回调 + 回填 scriptFields）
 // 显式 LPUTF8Str：脚本注册键/字段 JSON 均为 UTF-8（默认 string 编组是 ANSI——非 ASCII 会乱码）

@@ -22,6 +22,9 @@ namespace HybridEngine.Engine;
 internal sealed class InvokeItem
 {
     public ScriptBehaviour Owner = null!;
+    // 归属引擎：Reset(engine) 只清本引擎的条目——多引擎并存时全清会误伤其它引擎
+    //   （其它引擎的 Invoke 静默失效）。
+    public IntPtr Engine;
     public string Method = "";
     public MethodInfo Target = null!;
     public double Remain;      // 距下次触发（秒）
@@ -41,7 +44,7 @@ internal static class InvokeScheduler
         if (owner == null || string.IsNullOrEmpty(method)) return;
         var mi = Resolve(owner.GetType(), method);
         if (mi == null) { ReportMissing(owner, method); return; }
-        _items.Add(new InvokeItem { Owner = owner, Method = method, Target = mi, Remain = time < 0 ? 0 : time });
+        _items.Add(new InvokeItem { Owner = owner, Engine = owner.Owner.EnginePtr, Method = method, Target = mi, Remain = time < 0 ? 0 : time });
     }
 
     public static void InvokeRepeating(ScriptBehaviour owner, string method, double time, double repeatRate)
@@ -62,7 +65,7 @@ internal static class InvokeScheduler
                 return;
             }
         }
-        _items.Add(new InvokeItem { Owner = owner, Method = method, Target = mi, Remain = delay, Repeat = repeatRate, Repeating = true });
+        _items.Add(new InvokeItem { Owner = owner, Engine = owner.Owner.EnginePtr, Method = method, Target = mi, Remain = delay, Repeat = repeatRate, Repeating = true });
     }
 
     /// <summary>method==null → 取消该组件全部 Invoke；否则只取消该方法的全部条目（单次+重复）。</summary>
@@ -125,8 +128,14 @@ internal static class InvokeScheduler
         _due.Clear();
     }
 
-    /// <summary>测试/宿主复位用（GameEngine.Dispose → ComponentBridge.ReleaseAll）。</summary>
-    public static void Reset() { _items.Clear(); _due.Clear(); _cache.Clear(); }
+    /// <summary>只清**指定引擎**的 Invoke 条目（ComponentBridge.ReleaseAll(engine) 调用）。
+    /// <c>_cache</c> 是 (Type,Method)→MethodInfo 的纯反射缓存，与引擎无关，故保留不清。</summary>
+    public static void Reset(IntPtr engine)
+    {
+        for (int i = _items.Count - 1; i >= 0; --i)
+            if (_items[i].Engine == engine) _items.RemoveAt(i);
+        _due.Clear();
+    }
 
     public static int PendingCount => _items.Count;
 

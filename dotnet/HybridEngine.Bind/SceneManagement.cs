@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using HybridEngine.Engine.Internal;
@@ -59,7 +59,7 @@ public sealed class Scene
         if (Native.ms_scene_root_get(EnginePtr, Handle, index, out var go) != BindError.OK)
             throw new ArgumentOutOfRangeException(nameof(index));
         long id = Native.ms_go_instance_id(EnginePtr, go);
-        return new SceneObject(EnginePtr, go, id, "sceneRoot");
+        return new SceneObject(EnginePtr, go, id, "sceneRoot", Handle);
     }
 
     /// <summary>在本场景新建根对象（多场景下必须按场景建——不是往活动场景加）。</summary>
@@ -70,7 +70,7 @@ public sealed class Scene
         if (rc != BindError.OK) throw new InvalidOperationException("ms_scene_add_root rc=" + rc);
         if (Native.ms_scene_go_get(EnginePtr, Handle, id, out var go) != BindError.OK)
             throw new InvalidOperationException("ms_scene_go_get failed");
-        return new SceneObject(EnginePtr, go, id, name ?? "GameObject");
+        return new SceneObject(EnginePtr, go, id, name ?? "GameObject", Handle);
     }
 
     public IReadOnlyList<SceneObject> GetRoots()

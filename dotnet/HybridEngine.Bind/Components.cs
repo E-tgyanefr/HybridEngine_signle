@@ -113,7 +113,14 @@ internal static class NativeProxyCache
         return proxy;
     }
 
-    public static void Reset() => Cache.Clear();
+    /// <summary>只清**指定引擎**的原生代理缓存（该引擎句柄已失效）。
+    /// 无参全清会连带丢掉其它存活引擎的代理身份（ReferenceEquals 语义被破坏）。</summary>
+    public static void Reset(IntPtr engine)
+    {
+        var dead = new List<(IntPtr Engine, IntPtr Go, Type T)>();
+        foreach (var kv in Cache) if (kv.Key.Engine == engine) dead.Add(kv.Key);
+        foreach (var k in dead) Cache.Remove(k);
+    }
 
     /// <summary>原生组件是否存在——先安全解析活动指针（对象销毁 → false），不解引用失效句柄。</summary>
     private static bool Present(SceneObject owner, string nativeTypeName)

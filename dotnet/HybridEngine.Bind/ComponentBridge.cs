@@ -10,10 +10,27 @@ namespace HybridEngine.Engine;
 internal static class ComponentBridge
 {
     private static int _inst;
-    private static readonly Dictionary<IntPtr, (GCHandle Handle, object[] Keep)> _table = new();
+    // ⚠ 必须按**引擎**分域（2026-09-21 修复）：
+    //   原先 _table 只以 UserData 为键、ReleaseAll() 无参全清。于是
+    //   GameEngine.Dispose()（或任何一处释放）会把**其它仍存活引擎**的
+    //   GCHandle/delegate 根一起丢掉，而 C++ SpecTable 仍存着那些函数指针 →
+    //   下一次 ms_engine_tick 就是"回调已回收的委托"：
+    //   实测 `Process terminated. A callback was made on a garbage collected delegate`，
+    //   退出码 -2146232797（fail-fast，进程级）。
+    private static readonly Dictionary<(IntPtr Engine, IntPtr UserData), (GCHandle Handle, object[] Keep)> _table = new();
     private static readonly Dictionary<(IntPtr Engine, IntPtr Go), List<ComponentBase>> _byGo = new();
 
     public static string NextKey(string fullName) => fullName + "#" + ++_inst;
+
+    /// <summary>把计数器推到不低于已知键的序号——场景重放会带进别的进程/会话生成的键（如 <c>Foo#3</c>），
+    /// 若本进程计数器还停在 1，就会生成同一个键，导致 SpecTable 条目被就地覆盖、两个实例的派发串线
+    /// （实测：存活对象丢掉自己的 Update，重放实例拿到两次派发）。</summary>
+    public static void ReserveKey(string regKey)
+    {
+        int hash = regKey.LastIndexOf('#');
+        if (hash < 0 || hash == regKey.Length - 1) return;
+        if (int.TryParse(regKey.AsSpan(hash + 1), out int n) && n > _inst) _inst = n;
+    }
 
     public static void Register(ComponentBase comp, IntPtr engine, IntPtr go, string regKey)
     {
@@ -32,6 +49,9 @@ internal static class ComponentBridge
     /// </summary>
     public static void BindExisting(ComponentBase comp, IntPtr engine, IntPtr go, string regKey)
     {
+        // 重放键来自场景文件（可能是别的进程/会话生成的）——先把计数器推过它，
+        //   否则本进程之后生成的键会与它撞号（撞号 = SpecTable 就地覆盖 + 派发串线）。
+        ReserveKey(regKey);
         var spec = BuildSpec(comp, regKey, out var handle, out var keep);
         int rc = Native.ms_component_register(engine, ref spec);
         if (rc != BindError.OK) { handle.Free(); throw new InvalidOperationException("ms_component_register(replay) rc=" + rc); }
@@ -63,11 +83,11 @@ internal static class ComponentBridge
     private static void Commit(ComponentBase comp, IntPtr engine, IntPtr go, string regKey,
                                GCHandle handle, object[] keep, MsComponentSpec spec)
     {
-        _table[spec.UserData] = (handle, keep);
+        _table[(engine, spec.UserData)] = (handle, keep);
         var key = (engine, go);
         if (!_byGo.TryGetValue(key, out var list)) { list = new List<ComponentBase>(); _byGo[key] = list; }
         list.Add(comp);
-        ScriptRegistry.Register(regKey, comp);   // M3.4 脚本桥（types/fields/set）
+        ScriptRegistry.Register(engine, regKey, comp);   // M3.4 脚本桥（types/fields/set）
     }
 
     // —— 托管组件查询（托管组件注册表；P1-b：约束放宽到 Component 以配合统一查询面）——
@@ -107,14 +127,25 @@ internal static class ComponentBridge
             if (kv.Value.Remove(comp)) return;
     }
 
-    public static void ReleaseAll()
+    /// <summary>
+    /// 只释放**指定引擎**的桥接状态。必须按引擎分域——无参全清会让其它存活引擎的
+    /// 组件回调变悬垂（C++ 仍持旧函数指针），下一次 tick 直接崩。
+    /// 调用时机在 ms_engine_destroy **之前**（销毁过程还要走 OnDisable/OnDestroy 回调）。
+    /// </summary>
+    public static void ReleaseAll(IntPtr engine)
     {
-        foreach (var kv in _table) kv.Value.Handle.Free();
-        _table.Clear();
-        _byGo.Clear();
-        ScriptRegistry.UnregisterAll();
-        InvokeScheduler.Reset();
-        NativeProxyCache.Reset();   // P1-b：原生代理缓存随引擎释放（句柄已失效）
+        var dead = new List<(IntPtr Engine, IntPtr UserData)>();
+        foreach (var kv in _table) if (kv.Key.Engine == engine) dead.Add(kv.Key);
+        foreach (var k in dead) { _table[k].Handle.Free(); _table.Remove(k); }
+
+        var deadGo = new List<(IntPtr Engine, IntPtr Go)>();
+        foreach (var kv in _byGo) if (kv.Key.Engine == engine) deadGo.Add(kv.Key);
+        foreach (var k in deadGo) _byGo.Remove(k);
+
+        ScriptRegistry.UnregisterAll(engine);
+        InvokeScheduler.Reset(engine);
+        RoutineRunner.Reset(engine);
+        NativeProxyCache.Reset(engine);
     }
 
     // —— thunk（静态委托——GCHandle 反解到 C# 实例；同步回调于主线程）——

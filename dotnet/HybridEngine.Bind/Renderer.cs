@@ -86,8 +86,32 @@ internal sealed class RendererProxy : IRenderer
     public void DrawCircle(double cx, double cy, double r, Rgba color, double thickness = 1.0) => Native.ms_rnd_draw_circle(_engine, cx, cy, r, color.ToArgb(), thickness);
     public void FillTriangle(double x1, double y1, double x2, double y2, double x3, double y3, Rgba color) => Native.ms_rnd_fill_triangle(_engine, x1, y1, x2, y2, x3, y3, color.ToArgb());
     public void FillQuad(double x1, double y1, double x2, double y2, double x3, double y3, double x4, double y4, Rgba color) => Native.ms_rnd_fill_quad(_engine, x1, y1, x2, y2, x3, y3, x4, y4, color.ToArgb());
-    public void BlitRect(double x, double y, double w, double h, uint[] srcPixels) => Native.ms_rnd_blit_rect(_engine, x, y, w, h, srcPixels);
-    public void BlitRectAlpha(double x, double y, double w, double h, uint[] srcPixels) => Native.ms_rnd_blit_alpha(_engine, x, y, w, h, srcPixels);
+    /// <summary>图像 blit（srcPixels：0xAARRGGBB——不透明拷贝）。
+    /// ⚠ srcPixels 长度必须 ≥ ceil(w)*ceil(h)：C 侧按 w*h 无条件拷贝源像素，
+    /// 长度不足会**越界读**（实测 AccessViolationException；小幅不足则静默堆越界读，泄漏内存内容）。</summary>
+    public void BlitRect(double x, double y, double w, double h, uint[] srcPixels)
+    {
+        CheckBlitLen(w, h, srcPixels);
+        Native.ms_rnd_blit_rect(_engine, x, y, w, h, srcPixels);
+    }
+
+    /// <summary>逐像素 straight-alpha 合成 blit。长度要求同 <see cref="BlitRect"/>。</summary>
+    public void BlitRectAlpha(double x, double y, double w, double h, uint[] srcPixels)
+    {
+        CheckBlitLen(w, h, srcPixels);
+        Native.ms_rnd_blit_alpha(_engine, x, y, w, h, srcPixels);
+    }
+
+    /// <summary>blit 源像素长度校验——**必须在调用前做**：ABI 层完全信任 w*h，
+    /// 长度不足时按 w*h 读越界内存（ABI 无法自检，只能在包装层挡）。</summary>
+    private static void CheckBlitLen(double w, double h, uint[] srcPixels)
+    {
+        long need = (long)Math.Ceiling(w) * (long)Math.Ceiling(h);
+        if (need < 0) need = 0;
+        if (srcPixels == null || srcPixels.Length < need)
+            throw new ArgumentException(
+                $"blit 源像素不足：w={w} h={h} 需要 {need} 个像素，实际只有 {srcPixels?.Length ?? 0} 个");
+    }
     public void ClipPush(double x, double y, double w, double h) => Native.ms_rnd_clip_push(_engine, x, y, w, h);   // t6：矩形裁剪入栈
     public void ClipPushRotated(double cx, double cy, double w, double h, double angleRad) => Native.ms_rnd_clip_push_rotated(_engine, cx, cy, w, h, angleRad);   // t-rot-clip：旋转矩形裁剪入栈
     public void ClipPop() => Native.ms_rnd_clip_pop(_engine);                                                     // t6：弹栈

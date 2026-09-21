@@ -1,6 +1,7 @@
 # hybridengine.renderer — DrawCtx：GUI 平面 ctypes 绘制代理（与 C# IRenderer 对称；同一 C ABI）
 # 10 原语 + draw_text/measure_text + blit_alpha；颜色 = int（0xAARRGGBB——A=alpha 直通：填充原语 straight-alpha 合成；现示例全 FF=行为不变）
 import ctypes
+import math
 
 from . import _interop
 from ._interop import GUINotAvailable, gui_abi_available
@@ -10,6 +11,23 @@ def _require_gui():
     if not gui_abi_available():
         raise GUINotAvailable(
             "当前 hybridengine.dll 无 GUI ABI（ms_rnd_*/ms_text_*）——需先重建引擎 DLL（含 t1 GUI 平面）")
+
+
+def _check_blit_len(w: float, h: float, src_pixels):
+    """blit 源像素长度校验——**必须在调用前做**。
+
+    C 侧 `op.src.assign(srcPixels, srcPixels + (size_t)iw * (size_t)ih)` 完全信任 w*h，
+    源序列长度不足时按 w*h 读越界内存：实测长度 2 配 1000x1000 → access violation；
+    小幅不足（如 4x4 只给 1 像素）**不报错**，变成静默堆越界读（可能泄漏内存内容）。
+    ABI 层无法自检，只能在包装层挡。
+    """
+    need = int(math.ceil(w)) * int(math.ceil(h))
+    if need < 0:
+        need = 0
+    if len(src_pixels) < need:
+        raise ValueError(
+            "blit 源像素不足：w=%r h=%r 需要 %d 个像素，实际只有 %d 个"
+            % (w, h, need, len(src_pixels)))
 
 
 class DrawCtx:
@@ -62,14 +80,23 @@ class DrawCtx:
         _interop.ms_rnd_fill_quad(self._e, x1, y1, x2, y2, x3, y3, x4, y4, color)
 
     def blit_rect(self, x: float, y: float, w: float, h: float, src_pixels):
-        """图像 blit（src_pixels：0xAARRGGBB 整数序列——不透明拷贝=背靠背语义）"""
+        """图像 blit（src_pixels：0xAARRGGBB 整数序列——不透明拷贝=背靠背语义）
+
+        ⚠ src_pixels 长度必须 >= ceil(w)*ceil(h)：C 侧按 w*h 无条件拷贝源像素，
+        长度不足会**越界读**（实测 access violation；小幅不足则不报错而是静默堆越界读）。
+        """
         _require_gui()
+        _check_blit_len(w, h, src_pixels)
         arr = (ctypes.c_uint32 * len(src_pixels))(*src_pixels)
         _interop.ms_rnd_blit_rect(self._e, x, y, w, h, ctypes.cast(arr, ctypes.POINTER(ctypes.c_uint32)))
 
     def blit_alpha(self, x: float, y: float, w: float, h: float, src_pixels):
-        """t1：逐像素 straight-alpha 合成 blit（src_pixels：0xAARRGGBB 整数序列——A=alpha 生效；与 blit_rect 仅合成差异）"""
+        """t1：逐像素 straight-alpha 合成 blit（src_pixels：0xAARRGGBB 整数序列——A=alpha 生效；与 blit_rect 仅合成差异）
+
+        ⚠ 同 blit_rect：长度必须 >= ceil(w)*ceil(h)，否则越界读。
+        """
         _require_gui()
+        _check_blit_len(w, h, src_pixels)
         arr = (ctypes.c_uint32 * len(src_pixels))(*src_pixels)
         _interop.ms_rnd_blit_alpha(self._e, x, y, w, h, ctypes.cast(arr, ctypes.POINTER(ctypes.c_uint32)))
 
