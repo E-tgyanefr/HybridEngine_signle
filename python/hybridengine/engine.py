@@ -25,6 +25,13 @@ class GameEngine:
         # t1：GUI 平面——绘制回调（可空）+ DrawCtx 代理（与 C# OnRender/IRenderer 对称）
         self.on_render = None
         self.draw = DrawCtx(self._e)
+        # H4：脚本承载桥 + 场景重放回调（与 C# CsScriptBridge.Register 对称）。
+        #   不注册的话，含 Python 组件的场景存得下但**加载不回来**——ms_scene_load 只在
+        #   `HostingActive()`（桥 + 重放回调都就绪）时才走脚本重放路径。
+        #   桥对象挂在本实例上保活（回调被 GC 回收 → C++ 侧悬垂）。
+        self._script_bridge = None
+        from .script_bridge import register as _register_script_bridge
+        _register_script_bridge(self)
         if scene is not None:
             scene.build(self)
 

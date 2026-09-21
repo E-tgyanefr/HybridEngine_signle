@@ -243,6 +243,13 @@ ms_light_enable = _sig_opt("ms_light_enable", I, [P, P, I])
 ms_go_set_material = _sig_opt("ms_go_set_material", I, [P, P, D, D, ctypes.POINTER(D)])
 ms_engine_render3d_stats = _sig_opt("ms_engine_render3d_stats", I, [P, ctypes.POINTER(UL), I])
 
+# H4：脚本承载桥 + 场景重放（旧 DLL 无这些入口 → None，见 script_bridge.register 的降级）
+ms_script_bridge_register = _sig_opt("ms_script_bridge_register", I, [P, P, P, P, P])
+ms_script_replay_register = _sig_opt("ms_script_replay_register", I, [P, P, P])
+ms_script_fields = _sig_opt("ms_script_fields", I, [P, PC, P, I])
+ms_script_field_set = _sig_opt("ms_script_field_set", I, [P, PC, PC, PC])
+ms_script_types = _sig_opt("ms_script_types", I, [P, P, I])
+
 
 def render3d_abi_available() -> bool:
     """3D 用户场景 ABI 是否齐全（M5：光源/材质/统计——旧 DLL=无，调用前可判定）"""

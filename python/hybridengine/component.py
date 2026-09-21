@@ -14,6 +14,36 @@ class PyComponentBase:
         self.owner = None          # SceneObject（注册时回填）
         self.enabled = True
         self._instance_key = ""
+        self._reg_engine = None    # 所属引擎句柄（注销时定位注册表）
+        self._reg_inst_id = None   # 注册表内的实例号
+
+    def __init_subclass__(cls, **kw):
+        """自动给子类的 on_destroy 包一层"从注册表注销"。
+
+        为什么要在这里做（与 C# 的 thunk 收口思路一致）：组件销毁由引擎驱动，
+        C++ 侧只调 `on_destroy` 这一个回调——没有别的钩子能可靠地知道"这个实例已经死了"。
+        不注销的后果：场景重载 = 先拆旧场景（旧实例 on_destroy）再重放，
+        注册表里会**同时留着旧实例与重放实例**（同键两条），
+        `find_by_key` 可能命中已死的那个 → 脚本桥字段读写读错对象。
+        """
+        super().__init_subclass__(**kw)
+        user = cls.__dict__.get("on_destroy")
+        if user is None or getattr(user, "_reg_wrapped", False):
+            return
+
+        def _wrapped(self, _user=user):
+            try:
+                _user(self)
+            finally:
+                eng = getattr(self, "_reg_engine", None)
+                if eng:
+                    # 延迟导入：本模块顶层不能依赖 registry_for（同文件内定义在后面）
+                    reg = _registries.get(int(eng))
+                    if reg is not None:
+                        reg.unregister(self)
+
+        _wrapped._reg_wrapped = True
+        cls.on_destroy = _wrapped
 
     def awake(self): ...
     def on_enable(self): ...
@@ -73,6 +103,8 @@ class _EngineRegistry:
         self._instances[inst_id] = inst
         self._by_key[key] = inst_id
         inst._instance_key = key
+        inst._reg_engine = engine_handle     # 供 on_destroy 定位注册表（注销）
+        inst._reg_inst_id = inst_id
         inst.owner = go_wrapper   # SceneObject 包装回填（对称 C# Owner）
         spec = self._make_spec(key, inst_id)
         # H2：优先按 (注册键, 宿主对象) 注册**专属**条目——同键双实例（另一对象挂着同名键
@@ -125,6 +157,26 @@ class _EngineRegistry:
     def find_by_key(self, key: str):
         i = self._by_key.get(key)
         return self._instances.get(i) if i else None
+
+    def all_instances(self):
+        """本引擎的全部存活组件实例（脚本桥的 types 回调用它枚举类型）。"""
+        return list(self._instances.values())
+
+    def unregister(self, inst: PyComponentBase) -> bool:
+        """从注册表移除单个实例（组件 OnDestroy 时调用，与 C# ThunkDestroy→Unregister 对称）。
+
+        为什么要移除：场景重载会先拆旧场景（旧实例收到 on_destroy）再重放，
+        若不移除，注册表里会**同时留着旧实例与重放实例**（同键两条）——
+        `find_by_key` 可能命中已死的那个，脚本桥的字段读写也就读错了对象。
+        """
+        inst_id = getattr(inst, "_reg_inst_id", None)
+        if inst_id is None:
+            return False
+        self._instances.pop(inst_id, None)
+        key = getattr(inst, "_instance_key", "")
+        if key and self._by_key.get(key) == inst_id:
+            self._by_key.pop(key, None)
+        return True
 
     def release_all(self):
         self._instances.clear()
