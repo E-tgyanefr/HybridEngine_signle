@@ -35,8 +35,10 @@ internal static class ComponentBridge
     public static void Register(ComponentBase comp, IntPtr engine, IntPtr go, string regKey)
     {
         var spec = BuildSpec(comp, regKey, out var handle, out var keep);
-        int rc = Native.ms_component_register(engine, ref spec);
-        if (rc != BindError.OK) { handle.Free(); throw new InvalidOperationException("ms_component_register rc=" + rc); }
+        // H2：按 (注册键, 宿主对象) 注册**专属**条目——同键双实例各自有自己的回调表，
+        //   否则另一对象挂着同名键时会互相覆盖（连 Update 都会丢）。
+        int rc = Native.ms_component_register_for(engine, go, ref spec);
+        if (rc != BindError.OK) { handle.Free(); throw new InvalidOperationException("ms_component_register_for rc=" + rc); }
         int rc2 = Native.ms_go_add_component(engine, go, regKey);
         if (rc2 != BindError.OK) { handle.Free(); throw new InvalidOperationException("ms_go_add_component rc=" + rc2); }
         Commit(comp, engine, go, regKey, handle, keep, spec);
@@ -45,16 +47,17 @@ internal static class ComponentBridge
     /// <summary>
     /// P1-a 场景重放：原生脚本组件已由 C++ 反序列化创建——此处只**补挂回调表** + 托管登记，
     /// **不再** ms_go_add_component（会重复挂一个组件）。
-    /// 同键重注册会就地更新 SpecTable 条目，而已存在的 C++ BindComponent 持有该条目指针 → 立即生效。
+    /// H2：按 (注册键, **本对象**) 注册专属条目，C++ 侧经 RebindToOwnEntry 取回自己的那份
+    /// （若只按类型键注册，同键双实例时会命中对方的条目 → 派发串线）。
     /// </summary>
     public static void BindExisting(ComponentBase comp, IntPtr engine, IntPtr go, string regKey)
     {
         // 重放键来自场景文件（可能是别的进程/会话生成的）——先把计数器推过它，
-        //   否则本进程之后生成的键会与它撞号（撞号 = SpecTable 就地覆盖 + 派发串线）。
+        //   否则本进程之后生成的键会与它撞号。
         ReserveKey(regKey);
         var spec = BuildSpec(comp, regKey, out var handle, out var keep);
-        int rc = Native.ms_component_register(engine, ref spec);
-        if (rc != BindError.OK) { handle.Free(); throw new InvalidOperationException("ms_component_register(replay) rc=" + rc); }
+        int rc = Native.ms_component_register_for(engine, go, ref spec);
+        if (rc != BindError.OK) { handle.Free(); throw new InvalidOperationException("ms_component_register_for(replay) rc=" + rc); }
         Commit(comp, engine, go, regKey, handle, keep, spec);
     }
 

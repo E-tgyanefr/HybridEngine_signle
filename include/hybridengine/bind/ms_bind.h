@@ -117,6 +117,14 @@ typedef struct ms_component_spec {
     void*       userData;      // C# 实例 GCHandle（C# 拥有——GameEngine.Dispose 释放）
 } ms_component_spec;
 MS_API int ms_component_register(ms_engine* e, const ms_component_spec* spec);
+/* t-bind-h2：**为指定对象注册专属 spec**（同一注册键可为多个对象各存一份回调表）。
+   为什么需要：注册键是写进场景文件的 type 字段，场景重放**必须沿用它**——于是
+   "对象 A 挂 Foo#1 仍存活时附加加载一份同样含 Foo#1 的场景"必然出现同键双实例。
+   若只有按类型键的共享条目，重放的注册会覆盖 A 的条目 → A 的组件改调重放实例的回调
+   （A 的 Update 丢失）、托管侧查询也串到对方实例。
+   owner=nullptr 时等价于 ms_component_register（按类型共享），调用方不必特判。
+   绑定层在"新建组件"与"重放补挂"两条路径上都应优先用本入口。 */
+MS_API int ms_component_register_for(ms_engine* e, ms_go* owner, const ms_component_spec* spec);
 MS_API int ms_go_add_component(ms_engine* e, ms_go* g, const char* scriptType);
 MS_API int ms_go_get_component(ms_engine* e, ms_go* g, const char* scriptType, void** outReflected);
 

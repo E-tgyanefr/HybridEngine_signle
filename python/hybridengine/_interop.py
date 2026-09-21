@@ -223,6 +223,8 @@ ms_go_set_active = _sig("ms_go_set_active", I, [P, P, I])
 ms_go_destroy = _sig("ms_go_destroy", I, [P, P])
 ms_go_add_child = _sig("ms_go_add_child", I, [P, P, PC, ctypes.POINTER(P)])
 ms_component_register = _sig("ms_component_register", I, [P, ctypes.POINTER(ComponentSpec)])
+# H2：为指定对象注册**专属** spec（同键双实例各存一份回调表——带 go 句柄）
+ms_component_register_for = _sig_opt("ms_component_register_for", I, [P, P, ctypes.POINTER(ComponentSpec)])
 ms_go_add_component = _sig("ms_go_add_component", I, [P, P, PC])
 ms_go_get_component = _sig("ms_go_get_component", I, [P, P, PC, ctypes.POINTER(P)])
 

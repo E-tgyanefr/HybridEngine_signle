@@ -1,10 +1,10 @@
 # HybridEngine EngineSDK abi fingerprint
-# generated: 2026-09-21 13:26:42
+# generated: 2026-09-21 14:00:33
 header: include/hybridengine/bind/ms_bind.h
-sha256: 7EAC132ECFC24C12FFEA132DE732FAC4FAF0CA3AC5DBDFBA1D91E32A2EA30C20
+sha256: A9CFD0B033A9417EDB4BDB6485F4DF582E71B98E47661E8F35C9F8C8CEF5EF6E
 dll:    bin/hybridengine.dll
-sha256: 69B3502749A6E0AEBED4D127A0CB2A32A448C22AD382FFE164FB418CDC15AF69
-exports (153):
+sha256: B6BA2C3E26C72DC6048FE5B0EDD3EA39F183BF581DB813D2A1A92A155B3E47A8
+exports (154):
 ms_assets_guid
 ms_assets_instantiate_prefab
 ms_assets_list
@@ -30,6 +30,7 @@ ms_bind_live_engine_count
 ms_camera_set
 ms_component_get_enabled
 ms_component_register
+ms_component_register_for
 ms_component_set_enabled
 ms_dotnet_status
 ms_engine_create

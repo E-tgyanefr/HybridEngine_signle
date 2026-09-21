@@ -48,6 +48,26 @@ class _EngineRegistry:
     def add(self, inst: PyComponentBase, engine_handle, go_handle, go_wrapper=None) -> str:
         self._counter += 1
         key = f"{type(inst).__qualname__}#{self._counter}"
+        self._register_inner(inst, engine_handle, key, go_wrapper, go_handle)
+        # 新建才需要让原生侧挂组件；重放走 bind_existing（原生已由反序列化建好）
+        check(_interop.ms_go_add_component(engine_handle, go_handle, key.encode()), "go_add_component")
+        return key
+
+    def bind_existing(self, inst: PyComponentBase, engine_handle, go_handle, reg_key: str,
+                      go_wrapper=None) -> str:
+        """场景重放补挂：原生脚本组件**已由 C++ 反序列化创建**，此处只补回调表 + 托管登记，
+        **不再** ms_go_add_component（否则会重复挂一个组件）。
+
+        与 C# ComponentBridge.BindExisting 对称。键**沿用场景里保存的键**
+        （再次保存时 type 不漂移——场景 round-trip 稳定）。
+        """
+        # 重放键可能来自别的进程/会话：先把计数推过它，避免之后新建的实例撞号
+        self._reserve(reg_key)
+        self._register_inner(inst, engine_handle, reg_key, go_wrapper, go_handle)
+        return reg_key
+
+    def _register_inner(self, inst: PyComponentBase, engine_handle, key: str, go_wrapper,
+                        go_handle=None) -> None:
         inst_id = self._next_inst_id
         self._next_inst_id += 1
         self._instances[inst_id] = inst
@@ -55,9 +75,26 @@ class _EngineRegistry:
         inst._instance_key = key
         inst.owner = go_wrapper   # SceneObject 包装回填（对称 C# Owner）
         spec = self._make_spec(key, inst_id)
-        check(_interop.ms_component_register(engine_handle, ctypes.byref(spec)), "component_register")
-        check(_interop.ms_go_add_component(engine_handle, go_handle, key.encode()), "go_add_component")
-        return key
+        # H2：优先按 (注册键, 宿主对象) 注册**专属**条目——同键双实例（另一对象挂着同名键
+        #   仍存活，例如附加加载了一份同键场景）时各自有自己的回调表，否则会互相覆盖
+        #   （连 Update 都会丢）。旧 DLL 无此入口时退回按类型共享（行为与修复前一致）。
+        if go_handle and _interop.ms_component_register_for is not None:
+            check(_interop.ms_component_register_for(engine_handle, go_handle, ctypes.byref(spec)),
+                  "component_register_for")
+        else:
+            check(_interop.ms_component_register(engine_handle, ctypes.byref(spec)), "component_register")
+
+    def _reserve(self, key: str) -> None:
+        """把计数器推到不低于 key 里已带的序号（如 'Foo#3' → _counter >= 3）。"""
+        i = key.rfind('#')
+        if i <= 0 or i == len(key) - 1:
+            return
+        try:
+            n = int(key[i + 1:])
+        except ValueError:
+            return
+        if n > self._counter:
+            self._counter = n
 
     def _make_spec(self, key: str, inst_id: int) -> ComponentSpec:
         t1 = CALLBACK_VOID(_thunk("awake"))

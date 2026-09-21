@@ -121,6 +121,8 @@ public static class Native
 [DllImport(Dll, CallingConvention = Conv)] public static extern int ms_go_child_get(IntPtr e, IntPtr g, int index, out IntPtr outGo);
 [DllImport(Dll, CallingConvention = Conv)] public static extern int ms_go_remove_component(IntPtr e, IntPtr g, [MarshalAs(UnmanagedType.LPUTF8Str)] string scriptType);
     [DllImport(Dll, CallingConvention = Conv)] public static extern int ms_component_register(IntPtr e, ref MsComponentSpec spec);
+    // H2：为指定对象注册**专属** spec（同键双实例各存一份回调表）
+    [DllImport(Dll, CallingConvention = Conv)] public static extern int ms_component_register_for(IntPtr e, IntPtr owner, ref MsComponentSpec spec);
     [DllImport(Dll, CallingConvention = Conv)] public static extern int ms_go_add_component(IntPtr e, IntPtr g, [MarshalAs(UnmanagedType.LPUTF8Str)] string scriptType);
     [DllImport(Dll, CallingConvention = Conv)] public static extern int ms_go_get_component(IntPtr e, IntPtr g, [MarshalAs(UnmanagedType.LPUTF8Str)] string scriptType, out IntPtr outReflected);
 
