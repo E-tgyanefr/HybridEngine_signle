@@ -210,7 +210,12 @@ class _Bridge:
                 try:
                     data = json.loads(fields)
                 except Exception:
-                    data = {}
+                    # ⚠ 坏 JSON **不许**退化成"全默认值 + 成功"（旧行为：data={} 然后返回 0）：
+                    #   那是**静默假成功**——场景"打开成功"而组件字段全丢，用户只能靠对比
+                    #   存档反推。返回非 0 让引擎把该条目判为重放失败（ms_scene_load 透传该码）。
+                    return MS_ERR_BAD_ARG
+                if not isinstance(data, dict):
+                    return MS_ERR_BAD_ARG       # 形状不对（数组/标量）同样明确失败，不装作没看见
                 for name, v in data.items():
                     # 与 `_on_set` / `_public_fields` 同一份跳过名单：否则手写或跨语言写的
                     #   scriptFields 里出现 "owner" 会**覆盖刚建好的 Owner 视图**（enabled 同理会

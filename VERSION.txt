@@ -1,8 +1,8 @@
 ﻿HybridEngine EngineSDK
 sdk    : 0.5.0
 author : QDR-team (GitHub: E-tgyanefr)  -- 著作权人，见 LICENSE
-source : ce80c2e3a5c8d89b00d0ad5568f545d520edee4a  (ce80c2e3a5c8)
-built  : 2026-09-24 17:30:57
+source : 8d9b2b91231523626752a19626f1f0c1dd6218a8  (8d9b2b912315)
+built  : 2026-09-24 20:08:43
 preset : release (MinGW Makefiles -O3 -DNDEBUG; MS_USE_LTO)
 matrix : [run_tests.ps1] MATRIX 326/326 pass, 0 fail (preset=release)
 abi    : see abi.txt

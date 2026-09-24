@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -174,7 +175,11 @@ public static class CsScriptBridge
     {
         var comp = ScriptRegistry.Find(_engine, instanceKey);
         if (comp == null) return -1;
-        return SetFieldValue(comp, field, jsonValue) ? 0 : -2;
+        // ⚠ 必须在这里兜住异常（2026-09-24 修）：本方法是**反向 P/Invoke**（C++ 调托管）的入口，
+        //   而 jsonValue 可能来自手写/外部工具（非法数字、错形状、超范围）；异常穿出托管边界
+        //   是未定义行为（实测同族问题会以进程级崩溃收场）。返回 -2 = "没设置成功"，属契约内的失败码。
+        try { return SetFieldValue(comp, field, jsonValue) ? 0 : -2; }
+        catch { return -2; }
     }
 
     private static int TypeList(IntPtr userData, IntPtr outJson, int cap)
@@ -260,13 +265,21 @@ public static class CsScriptBridge
 
     private static bool IsSerializable(Type t) => t == typeof(int) || t == typeof(double) || t == typeof(bool) || t == typeof(string) || t == typeof(Vector3);
 
+    // ⚠ 数值一律走 **InvariantCulture**（2026-09-24 修）：`d.ToString("G")` / `double.Parse(...)`
+    //   默认用**当前区域**——在小数点为逗号的区域（de-DE 等）会写出 `1,5`，那既不是合法 JSON，
+    //   读回来也会被按别的区域解释 ⇒ 同一份 .mscene 换台机器就读错或被 Split(',') 切碎
+    //   （Vector3 的 `[1,5,0,5,0]`）。Python 侧 `repr()`/`float()` 本就与区域无关，故这里对齐后
+    //   才是真正的**跨语言/跨机器**格式契约。
     private static string ToJson(object? v)
     {
-        if (v is int i) return i.ToString();
-        if (v is double d) return d.ToString("G");
+        if (v is int i) return i.ToString(CultureInfo.InvariantCulture);
+        if (v is double d) return d.ToString("G", CultureInfo.InvariantCulture);
         if (v is bool b) return b ? "true" : "false";
         if (v is string s) return "\"" + s + "\"";
-        if (v is Vector3 vec) return "[" + vec.X.ToString("G") + "," + vec.Y.ToString("G") + "," + vec.Z.ToString("G") + "]";
+        if (v is Vector3 vec)
+            return "[" + vec.X.ToString("G", CultureInfo.InvariantCulture) + ","
+                       + vec.Y.ToString("G", CultureInfo.InvariantCulture) + ","
+                       + vec.Z.ToString("G", CultureInfo.InvariantCulture) + "]";
         return "null";
     }
 
@@ -279,12 +292,15 @@ public static class CsScriptBridge
         if (t == typeof(Vector3))
         {
             var parts = json.Trim('[', ']').Split(',');
-            return new Vector3(double.Parse(parts[0]), double.Parse(parts[1]), double.Parse(parts[2]));
+            return new Vector3(double.Parse(parts[0], CultureInfo.InvariantCulture),
+                               double.Parse(parts[1], CultureInfo.InvariantCulture),
+                               double.Parse(parts[2], CultureInfo.InvariantCulture));
         }
         return null;
     }
 
-    private static double ParseNum(string json) => double.Parse(json.Contains('.') ? json : json + ".0");
+    private static double ParseNum(string json) =>
+        double.Parse(json.Contains('.') ? json : json + ".0", CultureInfo.InvariantCulture);
 
     private static int WriteUtf8(string s, IntPtr buf, int cap)
     {

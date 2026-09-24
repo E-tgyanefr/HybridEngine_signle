@@ -243,7 +243,10 @@ MS_API int ms_script_types(ms_engine* e, char* outJson, int cap);
         ⚠ H2 起**不再**"按 savedKey 重新 ms_component_register"：注册键沿用（防 type 漂移）但
           条目按 (键, 对象) 取——同键双实例各持一份，否则重放会覆盖仍存活对象的回调表。
           C++ 侧对应 BindComponent::RebindToOwnEntry（ms_bind.cpp）。
-   返回 0=成功；非 0=该条目重放失败（ms_scene_load 透传该码）。
+   返回 0=成功；非 0=该条目重放失败 —— ⚠ ms_scene_load **不**透传该码：C++ 侧 LoadInto 把
+   "重放失败"归为 AssetErrorCode::InvalidFormat，最终对宿主报 **MS_ERR_INVALID_OP(1)**
+   （具体码只出现在失败文案里）。要点是**必须失败**，不许静默降级成"全默认值 + 加载成功"
+   （Python 侧曾在 scriptFields 坏 JSON 时吞异常返回 0，2026-09-24 修）。
    savedKey=保存时的注册键（托管侧沿用，保证再次保存无键漂移）；fieldsJson=scriptFields 原文（可空串）。 */
 typedef int (*ms_cb_script_replay)(void* userData, ms_go* go, const char* savedKey, const char* fieldsJson);
 MS_API int ms_script_replay_register(ms_engine* e, ms_cb_script_replay replayFn, void* userData);
