@@ -192,6 +192,16 @@ public static class CsScriptBridge
         return WriteUtf8(sb.ToString(), outJson, cap);
     }
 
+    /// <summary>桥内部/宿主簿记属性——**不算脚本字段**，读（BuildFieldsJson）与写（SetFieldValue）
+    /// 两侧都必须挡（2026-09-24 补齐）。
+    /// 为什么需要：BuildFieldsJson 为支持 `public int Score => _score;` 这类只读属性，会把 public
+    /// 属性一并扫进来，于是**基类的簿记属性被顺带带出**：`name`（=Owner.Name，回填会改对象名）、
+    /// `IsNative`、`RegKey`（检查器里可写——改了它组件就再也查不到）、`Enabled`。
+    /// 症状：每个组件的 scriptFields 都多出这几项，重放回填又写回去（读档时悄悄改对象名/组件开关）。
+    /// 注意 MembersJson（节点图调色板）只扫**字段**，不含属性，故本来就没这个泄漏——只此一处要挡。
+    /// Python 侧早有同一份名单（见 python/hybridengine/script_bridge.py 的 _SKIP_FIELDS），两侧口径对齐。</summary>
+    private static readonly HashSet<string> SkipFields = new() { "name", "IsNative", "RegKey", "Enabled" };
+
     private static string BuildFieldsJson(ComponentBase comp)
     {
         var sb = new StringBuilder();
@@ -199,6 +209,7 @@ public static class CsScriptBridge
         bool first = true;
         foreach (var f in comp.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
         {
+            if (SkipFields.Contains(f.Name)) continue;
             if (!IsSerializable(f.FieldType)) continue;
             if (!first) sb.Append(",");
             first = false;
@@ -208,6 +219,7 @@ public static class CsScriptBridge
         //   暴露状态（STG 脚本就是），只认字段的话图里会看到空清单。
         foreach (var p in comp.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
+            if (SkipFields.Contains(p.Name)) continue;      // 基类簿记属性不是脚本字段（见 SkipFields）
             if (!p.CanRead || p.GetIndexParameters().Length != 0) continue;
             if (!IsSerializable(p.PropertyType)) continue;
             try
@@ -226,6 +238,7 @@ public static class CsScriptBridge
     {
         foreach (var f in comp.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
         {
+            if (SkipFields.Contains(f.Name)) continue;
             if (f.Name != field || !IsSerializable(f.FieldType)) continue;
             f.SetValue(comp, FromJson(json, f.FieldType));
             return true;
@@ -233,6 +246,7 @@ public static class CsScriptBridge
         // t-graph-member：字段找不到 → 试**可写属性**（`public double Speed { get; set; }` 这类）
         foreach (var p in comp.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
+            if (SkipFields.Contains(p.Name)) continue;      // 不许经检查器/重放改 RegKey 等簿记项
             if (p.Name != field || !p.CanWrite || p.GetIndexParameters().Length != 0) continue;
             if (!IsSerializable(p.PropertyType)) continue;
             p.SetValue(comp, FromJson(json, p.PropertyType));
@@ -275,6 +289,9 @@ public static class CsScriptBridge
     private static int WriteUtf8(string s, IntPtr buf, int cap)
     {
         byte[] b = Encoding.UTF8.GetBytes(s);
+        // -3 (ErrBadArg) 是**约定**的"容量不足"码：引擎据此换大缓冲重试一次（见 ms_bind.h 的
+        //   ms_cb_script_fields 返回码契约）。别改成 -1——那与"实例未找到"同码，引擎无法区分
+        //   "装不下"和"真失败"，字段就会被静默丢弃。
         if (b.Length + 1 > cap) return -3;
         Marshal.Copy(b, 0, buf, b.Length);
         Marshal.WriteByte(buf, b.Length, 0);

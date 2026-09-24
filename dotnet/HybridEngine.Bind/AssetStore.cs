@@ -17,7 +17,6 @@ public sealed class Asset : IDisposable
     internal Asset(IntPtr engine, IntPtr handle) { Engine = engine; Handle = handle; }
     public string Type { get { byte[] b = new byte[32]; Native.ms_assets_type(Engine, Handle, b, b.Length); return Strip(b); } }
     public string Guid { get { byte[] b = new byte[32]; Native.ms_assets_guid(Engine, Handle, b, b.Length); return Strip(b); } }
-    public bool IsDisposed => _disposed;
     public void Dispose()
     {
         if (_disposed) return;   // ← 二次释放必须被挡住（否则堆损坏）

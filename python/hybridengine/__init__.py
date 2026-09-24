@@ -6,10 +6,16 @@ from .transform import Transform
 from .assetstore import AssetStore, Asset
 from .component import PyComponentBase
 from .renderer import DrawCtx
-from ._interop import BindException, GUINotAvailable, MS_BIND_OK, MS_ERR_THREAD, error_text
+# 原生用户场景组件（3D 网格/相机/光源 + 2D 精灵——与 C# Components.cs 的包装同形）
+from .native_components import (NativeComponent, MeshVisual, SpriteVisual, CameraComponent,
+                                LightComponent)
+from ._interop import (BindException, GUINotAvailable, Render3DNotAvailable, SpriteABINotAvailable,
+                       MS_BIND_OK, MS_ERR_THREAD, error_text)
 
 __all__ = ["GameEngine", "Scene", "SceneObject", "Transform", "AssetStore", "Asset",
-           "PyComponentBase", "DrawCtx", "BindException", "GUINotAvailable", "KeyCode"]
+           "PyComponentBase", "DrawCtx", "NativeComponent", "MeshVisual", "SpriteVisual",
+           "CameraComponent", "LightComponent", "BindException", "GUINotAvailable",
+           "Render3DNotAvailable", "SpriteABINotAvailable", "KeyCode"]
 
 import enum
 

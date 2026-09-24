@@ -74,7 +74,7 @@ public sealed class SceneObject
         if (Native.ms_go_child_get(EnginePtr, GoPtr, index, out var go) != BindError.OK)
             throw new ArgumentOutOfRangeException(nameof(index));
         long id = Native.ms_go_instance_id(EnginePtr, go);
-        return new SceneObject(EnginePtr, go, id, "child");
+        return new SceneObject(EnginePtr, go, id, "child", _scene);
     }
     public static SceneObject? Find(string name) => GameEngine.Current?.FindSceneObject(name);
     // P1-b：Add* 经 NativeProxyCache 登记 → Add 返回的代理与后续 GetComponent<T>() 同一实例（身份稳定）
@@ -162,7 +162,9 @@ public sealed class SceneObject
         if (Native.ms_go_add_child(EnginePtr, GoPtr, name, out var go) != BindError.OK)
             throw new InvalidOperationException("ms_go_add_child failed");
         long id = Native.ms_go_instance_id(EnginePtr, go);
-        var child = new SceneObject(EnginePtr, go, id, name);
+        // 子对象与父对象在同一场景——必须把 _scene 传下去（此前漏传 → _scene=Zero → 解析回落
+        // 活动场景：多场景下会查错场景，拿不到（静默失败）或查到同 id 的**另一个**对象）。
+        var child = new SceneObject(EnginePtr, go, id, name, _scene);
         _children.Add(child);
         return child;
     }
@@ -192,10 +194,30 @@ public sealed class SceneObject
     {
         // 注意：这里必须读 _goPtr 字段，不能读 GoPtr 属性（那会无限自递归）
         if (EnginePtr == IntPtr.Zero || _goPtr == IntPtr.Zero || Id == 0) return IntPtr.Zero;
-        // 所属场景优先；未指定则回落活动场景（单场景等价）。
-        var scene = _scene != IntPtr.Zero ? _scene : Native.ms_engine_scene(EnginePtr);
-        if (scene == IntPtr.Zero) return IntPtr.Zero;
-        return Native.ms_scene_go_get(EnginePtr, scene, Id, out var live) == BindError.OK ? live : IntPtr.Zero;
+
+        // ① 构造时明确给了所属场景 → **只认它**。
+        //    不能"找不到就换个场景再找"：那会在多场景下读到另一个场景里同 id 的对象。
+        if (_scene != IntPtr.Zero)
+            return Native.ms_scene_go_get(EnginePtr, _scene, Id, out var own) == BindError.OK ? own : IntPtr.Zero;
+
+        // ② 未指定场景 → 先活动场景（单场景下即唯一路径，与旧行为逐字一致）。
+        var active = Native.ms_engine_scene(EnginePtr);
+        if (active != IntPtr.Zero && Native.ms_scene_go_get(EnginePtr, active, Id, out var live) == BindError.OK)
+            return live;
+
+        // ③ 活动场景里没有 → 扫其余已加载场景。
+        //    走这里的调用点：附加加载（additive）下由**宿主/重放**建的视图——它们只拿到 go 指针
+        //    （SceneReplay.Replay / Scripts.AddComponent 的原生入口就没有场景参数）。
+        //    这样"猜"是安全的：InstanceId 由**进程级**单调计数器发号（core/instance.hpp：从 1 起、
+        //    永不复用；反序列化也重新发号，不还原盘上 id）→ 全进程唯一，不会撞到别的场景的对象。
+        if (Native.ms_scenes_count(EnginePtr, out int n) != BindError.OK) return IntPtr.Zero;
+        for (int i = 0; i < n; ++i)
+        {
+            if (Native.ms_scenes_get(EnginePtr, i, out var s) != BindError.OK) continue;
+            if (s == IntPtr.Zero || s == active) continue;
+            if (Native.ms_scene_go_get(EnginePtr, s, Id, out var found) == BindError.OK) return found;
+        }
+        return IntPtr.Zero;
     }
 
     internal void DetachComponent(ComponentBase comp) => _components.Remove(comp);

@@ -211,6 +211,9 @@ ms_input_mouse_button_up = _sig_opt("ms_input_mouse_button_up", I, [P, I])
 ms_input_mouse_wheel_delta = _sig_opt("ms_input_mouse_wheel_delta", D, [P])
 
 ms_engine_scene = _sig("ms_engine_scene", P, [P])
+ms_scenes_count = _sig("ms_scenes_count", I, [P, ctypes.POINTER(I)])          # 已加载场景数（≥1）
+ms_scenes_get = _sig("ms_scenes_get", I, [P, I, ctypes.POINTER(P)])          # 按索引取场景句柄
+ms_scene_load_additive = _sig("ms_scene_load_additive", I, [P, PC, ctypes.POINTER(P)])   # 附加加载（活动场景不变）
 ms_scene_add_root = _sig("ms_scene_add_root", I, [P, P, PC, ctypes.POINTER(L)])
 ms_scene_save = _sig("ms_scene_save", I, [P, P, PC])
 ms_scene_load = _sig("ms_scene_load", I, [P, P, PC])
@@ -243,7 +246,17 @@ ms_light_enable = _sig_opt("ms_light_enable", I, [P, P, I])
 ms_go_set_material = _sig_opt("ms_go_set_material", I, [P, P, D, D, ctypes.POINTER(D)])
 ms_engine_render3d_stats = _sig_opt("ms_engine_render3d_stats", I, [P, ctypes.POINTER(UL), I])
 
+# 2D：SpriteVisual（ms_bind.h:166 归 2D 段——世界坐标=屏幕像素/原点=屏幕中心）
+# 故**不并进**上面的 3D 批次：render3d_abi_available() 不含这两个符号，另有 sprite_abi_available()。
+# 两者都用 _sig_opt（旧 DLL → None）；调用侧经 native_components.require_sprite_abi 先判可用性，
+# **绝不对 None 调用**（那是 TypeError，既非优雅降级也非明确报错）。
+ms_go_add_sprite_visual = _sig_opt("ms_go_add_sprite_visual", I, [P, P])
+ms_sprite_set = _sig_opt("ms_sprite_set", I, [P, P, D, D, D, D, D, D, PC])   # cr,cg,cb,ca,width,height,textureAsset（UTF-8；NULL=纯色）
+
 # H4：脚本承载桥 + 场景重放（旧 DLL 无这些入口 → None，见 script_bridge.register 的降级）
+#   ⚠ 这 5 个符号**只在此处声明一次**，且必须用 _sig_opt：若在本文件别处再用 _sig 声明一遍，
+#     后声明会覆盖这里，旧 DLL 上 `import hybridengine` 直接 AttributeError，
+#     register() 里的 `is None` 降级分支永远走不到（本文件曾有过这样一份重复声明，已删）。
 ms_script_bridge_register = _sig_opt("ms_script_bridge_register", I, [P, P, P, P, P])
 ms_script_replay_register = _sig_opt("ms_script_replay_register", I, [P, P, P])
 ms_script_fields = _sig_opt("ms_script_fields", I, [P, PC, P, I])
@@ -251,14 +264,42 @@ ms_script_field_set = _sig_opt("ms_script_field_set", I, [P, PC, PC, PC])
 ms_script_types = _sig_opt("ms_script_types", I, [P, P, I])
 
 
+class Render3DNotAvailable(RuntimeError):
+    """当前 hybridengine.dll 无 3D 用户场景 ABI（ms_go_add_mesh_visual/ms_go_set_mesh/ms_camera_*/
+    ms_go_add_light/ms_light_*/ms_go_set_material）——需重建引擎 DLL（含 MMD-3D/M5 批次）。"""
+
+
 def render3d_abi_available() -> bool:
-    """3D 用户场景 ABI 是否齐全（M5：光源/材质/统计——旧 DLL=无，调用前可判定）"""
+    """3D 用户场景 ABI 是否齐全（M5：网格/材质/相机/光源/统计——旧 DLL=无）。
+
+    **调用点**：`native_components.require_3d_abi()`（MeshVisual/CameraComponent/LightComponent 的
+    全部入口 + `SceneObject.add_mesh_visual/add_camera_component/add_light_component`）。
+    这些符号都用 `_sig_opt` 取（旧 DLL → None），故调用前必须先经本函数判定，
+    否则会对着 None 调用而抛 TypeError（既不是"优雅降级"也不是"明确报错"）——
+    ABI 缺失时由 require_3d_abi 抛 Render3DNotAvailable。
+
+    结果**不缓存**（与 gui_abi_available 的缓存不同）：本函数只在能力入口调用（每帧热路径不经过它），
+    而测试要能 monkeypatch 符号后立刻看到判定翻转。
+    """
     return all(
         globals().get(n) is not None
         for n in ("ms_go_add_mesh_visual", "ms_go_set_mesh", "ms_go_add_camera", "ms_camera_set",
                   "ms_go_add_light", "ms_light_set", "ms_light_enable", "ms_go_set_material",
                   "ms_engine_render3d_stats")
     )
+
+
+class SpriteABINotAvailable(RuntimeError):
+    """当前 hybridengine.dll 无 2D 精灵 ABI（ms_go_add_sprite_visual/ms_sprite_set）——需重建引擎 DLL。"""
+
+
+def sprite_abi_available() -> bool:
+    """2D 精灵 ABI 符号是否齐全（旧 DLL=无）。
+
+    与 render3d_abi_available 分开：ms_bind.h 把 SpriteVisual 归 2D 段，两个符号**不在** 3D 批次里，
+    两者可独立缺失（故各自判各自的）。调用点：`native_components.require_sprite_abi()`。
+    """
+    return all(globals().get(n) is not None for n in ("ms_go_add_sprite_visual", "ms_sprite_set"))
 
 ms_property_get = _sig("ms_property_get", I, [P, P, PC, PC, ctypes.c_char_p, I])
 ms_property_set = _sig("ms_property_set", I, [P, P, PC, PC, PC])
@@ -273,11 +314,6 @@ ms_assets_save = _sig("ms_assets_save", I, [P, PC, P, I, PC])
 ms_assets_save_text = _sig("ms_assets_save_text", I, [P, PC, PC, PC])
 ms_assets_list = _sig("ms_assets_list", I, [P, PC, ctypes.c_char_p, I])   # t7：递归 List→JSON 数组（cap 溢出=BAD_ARG）
 ms_assets_texture_pixels = _sig("ms_assets_texture_pixels", I, [P, P, ctypes.POINTER(I), ctypes.POINTER(I), ctypes.POINTER(I), ctypes.POINTER(P)])   # t7：纹理像素借出指针
-
-ms_script_bridge_register = _sig("ms_script_bridge_register", I, [P, P, P, P, P])
-ms_script_fields = _sig("ms_script_fields", I, [P, PC, ctypes.c_char_p, I])
-ms_script_field_set = _sig("ms_script_field_set", I, [P, PC, PC, PC])
-ms_script_types = _sig("ms_script_types", I, [P, ctypes.c_char_p, I])
 
 # t8：音频句柄面（与 C ABI 一一对应——open 返回 ≥10=句柄 id；失败=错误码）与手柄（XInput）
 ms_audio_open = _sig("ms_audio_open", I, [P, PC])

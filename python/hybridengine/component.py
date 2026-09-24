@@ -255,8 +255,3 @@ def _thunk_dt(fn_name):
         if inst is not None:
             getattr(inst, fn_name)(dt)
     return thunk
-
-
-def _owner_of(go_handle, engine_handle):
-    """延迟回填（由 SceneObject 包装处理）——详见 sceneobject.add_component"""
-    return None

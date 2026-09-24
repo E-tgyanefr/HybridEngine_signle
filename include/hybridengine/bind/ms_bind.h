@@ -209,7 +209,14 @@ MS_API int  ms_transform_set(ms_engine* e, ms_go* g, const char* field, const do
 MS_API ms_id ms_transform_parent(ms_engine* e, ms_go* g);
 MS_API int  ms_transform_set_parent(ms_engine* e, ms_go* g, ms_id parentId, int keepWorld);
 
-/* ---- C# 脚本桥（M3.4：types/fields/set 三回调——编辑器脚本字段经绑定） ---- */
+/* ---- C# 脚本桥（M3.4：types/fields/set 三回调——编辑器脚本字段经绑定） ----
+   回调返回码契约（**容量不足必须可区分**，2026-09-24 补齐）：
+     0                = 成功（outJson 里是 UTF-8 JSON，已 NUL 结尾）
+     MS_ERR_BAD_ARG   = **容量不足**（cap 放不下）——引擎会换更大缓冲**重试一次**
+     其它非 0         = 真失败（类型找不到/取值抛异常…）——引擎跳过该组件并打一条 stderr
+   ⚠ 宿主实现**不许截断**：截断会写出半个 JSON，比失败更难查。为什么需要这个契约：
+     引擎侧 `InjectScriptFields` 原先固定 4096 字节且对失败**完全静默** →
+     字段 JSON 超限时"存盘成功、组件状态无声丢失"（实测上限 4095 字节）。 */
 typedef int (*ms_cb_script_fields)(void* userData, const char* instanceKey, char* outJson, int cap);
 typedef int (*ms_cb_script_field_set)(void* userData, const char* instanceKey, const char* field, const char* jsonValue);
 typedef int (*ms_cb_script_types)(void* userData, char* outJson, int cap);
@@ -231,8 +238,11 @@ MS_API int ms_script_types(ms_engine* e, char* outJson, int cap);
      1) 反序列化时按注册键形状（*#数字）认领脚本条目 → 建占位 BindComponent（回调全空=静默）；
      2) 旧场景经 Scene::RemoveRoot 拆除（触发 OnDisable/OnDestroy → 托管登记清退）；
      3) 装载新场景，对每个脚本条目调用 replayFn(go, savedKey, fieldsJson)：
-        托管侧建实例、按 savedKey 重新 ms_component_register（同键就地更新 → 已存在的 BindComponent
-        立即取到新回调）、补挂 Owner/sceneObject 视图、回填 scriptFields。
+        托管侧建实例、按 (savedKey, go) 经 ms_component_register_for 补挂**本对象专属**回调表、
+        补挂 Owner/sceneObject 视图、回填 scriptFields。
+        ⚠ H2 起**不再**"按 savedKey 重新 ms_component_register"：注册键沿用（防 type 漂移）但
+          条目按 (键, 对象) 取——同键双实例各持一份，否则重放会覆盖仍存活对象的回调表。
+          C++ 侧对应 BindComponent::RebindToOwnEntry（ms_bind.cpp）。
    返回 0=成功；非 0=该条目重放失败（ms_scene_load 透传该码）。
    savedKey=保存时的注册键（托管侧沿用，保证再次保存无键漂移）；fieldsJson=scriptFields 原文（可空串）。 */
 typedef int (*ms_cb_script_replay)(void* userData, ms_go* go, const char* savedKey, const char* fieldsJson);

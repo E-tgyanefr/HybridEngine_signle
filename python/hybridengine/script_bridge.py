@@ -20,7 +20,7 @@ import json
 import math
 
 from . import _interop
-from ._interop import I, P, PC, D, check
+from ._interop import I, P, PC, D, check, MS_ERR_BAD_ARG
 
 # 回调签名（与 ms_bind.h 的 ms_cb_script_* 一致；cdecl）
 _CB_FIELDS = ctypes.CFUNCTYPE(ctypes.c_int, P, PC, P, ctypes.c_int)
@@ -30,6 +30,10 @@ _CB_REPLAY = ctypes.CFUNCTYPE(ctypes.c_int, P, P, PC, PC)
 
 # 可序列化标量类型（bool 必须在 int 之前判定——Python 里 bool 是 int 的子类）
 _SCALARS = (bool, int, float, str)
+
+# 桥内部字段（不属于脚本的可编辑字段）：字段**暴露**与**回填**必须用同一份名单，
+#   否则会出现"检查器能改、但重放回填被跳过"（或反之）的不对称。故提为模块常量。
+_SKIP_FIELDS = frozenset({"owner", "enabled", "_instance_key"})
 
 
 def _is_vec3(v) -> bool:
@@ -84,7 +88,7 @@ def _public_fields(inst):
     Python 没有"公开/私有"的强制边界，故用**前导下划线**作约定，
     并显式排除本模块与组件基类用的内部名（owner/_instance_key/...）。
     """
-    skip = {"owner", "enabled", "_instance_key"}
+    skip = _SKIP_FIELDS
     out = {}
     for name in dir(type(inst)):
         if name.startswith("_") or name in skip:
@@ -114,10 +118,17 @@ class _Bridge:
 
     # —— 工具 ——
     def _write(self, out, cap: int, text: str) -> int:
-        """按 UTF-8 写入 out/cap；容量不足返回非 0（引擎会把它当失败，不读半截）。"""
+        """按 UTF-8 写入 out/cap。
+
+        返回码契约（见 ms_bind.h 的 ms_cb_script_fields）：
+          · 容量不足 → `MS_ERR_BAD_ARG`（**必须可区分**：引擎据此换大缓冲重试一次；
+            旧实现返回 -1，与"NULL 句柄"同码，引擎无法识别 → 字段超限时静默丢弃）；
+          · 成功 → 0。
+        **不许截断**：写出半个 JSON 比失败更难查。
+        """
         b = text.encode("utf-8")
         if cap <= 0 or len(b) + 1 > cap:
-            return -1
+            return MS_ERR_BAD_ARG
         ctypes.memmove(out, b, len(b))
         ctypes.memset(out + len(b), 0, 1)
         return 0
@@ -152,7 +163,7 @@ class _Bridge:
         comp = self._find(key)
         if comp is None:
             return -1
-        if name.startswith("_") or name in ("owner", "enabled", "_instance_key"):
+        if name.startswith("_") or name in _SKIP_FIELDS:
             return -1
         cls_attr = getattr(type(comp), name, None)
         if cls_attr is None or callable(cls_attr):
@@ -201,7 +212,10 @@ class _Bridge:
                 except Exception:
                     data = {}
                 for name, v in data.items():
-                    if name.startswith("_"):
+                    # 与 `_on_set` / `_public_fields` 同一份跳过名单：否则手写或跨语言写的
+                    #   scriptFields 里出现 "owner" 会**覆盖刚建好的 Owner 视图**（enabled 同理会
+                    #   被采纳）——暴露与回填必须对称，见 _SKIP_FIELDS 的注释。
+                    if name.startswith("_") or name in _SKIP_FIELDS:
                         continue
                     try:
                         setattr(inst, name, v)
